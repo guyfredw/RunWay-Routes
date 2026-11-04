@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RunWay Routes test viewer</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+  body { margin: 0; font: 14px system-ui, sans-serif; color: #1a1a1a; background: #fff; }
+  #panel { padding: 10px 16px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  select { font: inherit; padding: 6px; max-width: 100%; }
+  #stats { width: 100%; }
+  #map { height: calc(100vh - 110px); min-height: 360px; }
+  .key { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin: 0 4px 0 10px; vertical-align: -1px; }
+</style>
+</head>
+<body>
+<div id="panel">
+  <select id="route" aria-label="Route"></select>
+  <label><input type="checkbox" id="base"> Show comparison route (gray)</label>
+  <div>
+    <span class="key" style="background:#d62728"></span>Signal
+    <span class="key" style="background:#ff7f0e"></span>Crosswalk or major road
+    <span class="key" style="background:#f2c200"></span>Side street
+  </div>
+  <div id="stats"></div>
+</div>
+<div id="map"></div>
+<script>
+const DATA = /*DATA*/null;
+const COLORS = { signal: '#d62728', major: '#ff7f0e', minor: '#f2c200' };
+const select = document.getElementById('route');
+DATA.forEach((d, i) => select.add(new Option(d.label, i)));
+const map = new maplibregl.Map({ container: 'map', style: 'https://tiles.openfreemap.org/styles/liberty', center: [-80.35, 25.82], zoom: 13 });
+map.addControl(new maplibregl.NavigationControl());
+const line = (coords) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords || [] }, properties: {} });
+const describe = (s) => `${s.km} km, ${s.total} estimated stops (${s.signals} signals, ${s.major} crosswalks or major roads, ${s.minor} side streets)`;
+function show() {
+  const d = DATA[+select.value];
+  const showBase = document.getElementById('base').checked && d.baseline;
+  map.getSource('runway').setData(line(d.runway.coords));
+  map.getSource('baseline').setData(line(showBase ? d.baseline.coords : []));
+  map.getSource('events').setData({ type: 'FeatureCollection', features: d.runway.events.map((e) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [e.lon, e.lat] }, properties: { color: COLORS[e.level] } })) });
+  map.getSource('start').setData({ type: 'Point', coordinates: [d.start.lon, d.start.lat] });
+  document.getElementById('stats').textContent = `RunWay: ${describe(d.runway.stats)}` + (d.baseline ? ` | Comparison: ${describe(d.baseline.stats)}` : '');
+  const bounds = d.runway.coords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(d.runway.coords[0], d.runway.coords[0]));
+  map.fitBounds(bounds, { padding: 40, duration: 0 });
+}
+map.on('load', () => {
+  for (const id of ['baseline', 'runway']) map.addSource(id, { type: 'geojson', data: line([]) });
+  map.addSource('events', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addSource('start', { type: 'geojson', data: { type: 'Point', coordinates: [0, 0] } });
+  map.addLayer({ id: 'baseline', type: 'line', source: 'baseline', paint: { 'line-color': '#777', 'line-width': 4, 'line-opacity': 0.7 } });
+  map.addLayer({ id: 'runway', type: 'line', source: 'runway', paint: { 'line-color': '#0b6bcb', 'line-width': 4 } });
+  map.addLayer({ id: 'events', type: 'circle', source: 'events', paint: { 'circle-radius': 5, 'circle-color': ['get', 'color'], 'circle-stroke-color': '#fff', 'circle-stroke-width': 1 } });
+  map.addLayer({ id: 'start', type: 'circle', source: 'start', paint: { 'circle-radius': 8, 'circle-color': '#14833b', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
+  show();
+});
+select.onchange = show;
+document.getElementById('base').onchange = show;
+</script>
+</body>
+</html>
