@@ -7,7 +7,7 @@ const CONCURRENCY = 2;
 const BEARINGS = 12;
 export const TOLERANCE = 0.05;
 export const MAX_LOOP_RETRACE = 0.25;
-export const MAX_BUSY_SHARE = 0.02; // Busy roads with no sidewalk tag.
+export const MAX_BUSY_SHARE = 0.02; // Tertiary or busier roads with no sign of a sidewalk.
 export const MAX_SERVICE_SHARE = 0.05; // Access is often unclear on service roads.
 
 export type CourseType = 'out-and-back' | 'loop';
@@ -112,8 +112,8 @@ export function usable(c: Candidate, req: Request): boolean {
   return req.type !== 'loop' || c.analysis.retraceShare <= MAX_LOOP_RETRACE;
 }
 
-// Stops first; repeated ground only breaks close calls.
-export const score = (c: Candidate, req: Request) => c.analysis.weighted + (req.type === 'loop' ? c.analysis.retraceShare * 20 : 0);
+// Stops and road sections with no sign of a sidewalk; repeated ground only breaks close calls.
+export const score = (c: Candidate, req: Request) => c.analysis.weighted + c.analysis.sidewalkPenalty + (req.type === 'loop' ? c.analysis.retraceShare * 20 : 0);
 
 export function pickFewestStops(list: Candidate[], req: Request): Candidate | null {
   return list.filter((c) => usable(c, req)).sort((a, b) => score(a, req) - score(b, req))[0] ?? null;

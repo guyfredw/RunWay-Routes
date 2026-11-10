@@ -1,9 +1,15 @@
 // Estimates likely running stops along a route using OpenStreetMap data.
-// Levels: signal (traffic lights), major (marked crossing or major road), minor (side street).
+// Each stop gets a wait estimate from the width of the road crossed (lanes),
+// plus extra weight for traffic signals. Also measures road sections with no
+// evidence of a sidewalk.
 
 export type Coord = [lon: number, lat: number, ele?: number];
-export type Level = 'signal' | 'major' | 'minor';
-export type StopEvent = { distM: number; lat: number; lon: number; level: Level; reason: string };
+export type Wait = 'short' | 'medium' | 'long';
+export type StopEvent = {
+  distM: number; lat: number; lon: number; lanes: number; signal: boolean; wait: Wait; weight: number; reason: string;
+  road?: string; // name of the road crossed
+  carriageways?: Record<string, number>; // one-way halves of divided roads crossed here: 'name|direction' -> lanes
+};
 
 export type OsmElement = {
   type: string;
@@ -20,25 +26,32 @@ export type Analysis = {
   gainM: number;
   events: StopEvent[];
   signals: number;
-  major: number;
-  minor: number;
+  long: number;
+  medium: number;
+  short: number;
   total: number;
   weighted: number;
   privateM: number;
   serviceM: number;
   busyNoSidewalkM: number;
+  quietNoSidewalkM: number;
+  sidewalkPenalty: number;
+  noSidewalk: [number, number][][];
   gates: number;
   retraceShare: number;
   matchedShare: number;
 };
 
-export const WEIGHTS: Record<Level, number> = { signal: 5, major: 3, minor: 1 };
-const RANK: Record<Level, number> = { minor: 1, major: 2, signal: 3 };
+export const WAIT_WEIGHTS: Record<Wait, number> = { short: 1, medium: 3, long: 5 };
+export const SIGNAL_WEIGHT = 3;
+const DEFAULT_LANES: Record<string, number> = { trunk: 4, primary: 4, secondary: 4, tertiary: 2, residential: 2, unclassified: 2, living_street: 1, service: 1 };
 const CLUSTER_M = 35;
+const INTERSECTION_M = 60; // Longest stretch of nearby map points treated as one intersection.
+const DIVIDED_ROAD_M = 80; // Both halves of a divided road with the same name count as one crossing.
 const SIGNAL_NEAR_M = 20;
+const SIDEWALK_NEAR_M = 20;
 const SNAP_M = 3;
 const CELL = 0.001;
-
 const M_PER_DEG = 111320;
 
 export function distM(aLat: number, aLon: number, bLat: number, bLon: number): number {
@@ -71,6 +84,12 @@ export function elevationGain(coords: Coord[], thresholdM = 3): number {
   return gain;
 }
 
+export function waitFor(lanes: number): Wait {
+  return lanes >= 5 ? 'long' : lanes >= 3 ? 'medium' : 'short';
+}
+
+export const weightOf = (lanes: number, signal: boolean) => WAIT_WEIGHTS[waitFor(lanes)] + (signal ? SIGNAL_WEIGHT : 0);
+
 function roadClass(tags: Record<string, string> | undefined): 'major' | 'minor' | null {
   const h = tags?.highway ?? '';
   if (/^(primary|secondary|tertiary|trunk)(_link)?$/.test(h)) return 'major';
@@ -78,11 +97,16 @@ function roadClass(tags: Record<string, string> | undefined): 'major' | 'minor' 
   return null;
 }
 
+export function lanesOf(tags: Record<string, string> | undefined): number {
+  const n = parseFloat((tags?.lanes ?? '').split(';')[0]);
+  if (n > 0) return Math.round(n);
+  return DEFAULT_LANES[(tags?.highway ?? '').replace(/_link$/, '')] ?? 1;
+}
+
 const isSignalNode = (t?: Record<string, string>) => t?.highway === 'traffic_signals' || t?.crossing === 'traffic_signals' || t?.crossing === 'pedestrian_signals';
 const isSeparatedLevel = (t?: Record<string, string>) => !!t && ((t.bridge && t.bridge !== 'no') || (t.tunnel && t.tunnel !== 'no'));
 const isPrivate = (t?: Record<string, string>) => !!t && (t.access === 'private' || t.access === 'no' || t.foot === 'no' || t.foot === 'private');
-
-const isBusyNoSidewalk = (t?: Record<string, string>) => /^(primary|secondary|trunk)(_link)?$/.test(t?.highway ?? '') && !/both|left|right|yes|separate/.test(t?.sidewalk ?? '');
+const isWalkPath = (t?: Record<string, string>) => /^(footway|path|cycleway|pedestrian)$/.test(t?.highway ?? '') && t?.footway !== 'crossing';
 
 function segmentsCross(aLat: number, aLon: number, bLat: number, bLon: number, cLat: number, cLon: number, dLat: number, dLon: number): boolean {
   const o = (pLat: number, pLon: number, qLat: number, qLon: number, rLat: number, rLon: number) => (qLon - pLon) * (rLat - pLat) - (qLat - pLat) * (rLon - pLon);
@@ -93,15 +117,37 @@ function segmentsCross(aLat: number, aLon: number, bLat: number, bLon: number, c
   return d1 * d2 < 0 && d3 * d4 < 0;
 }
 
+// Compass quarter a one-way road runs in: 0 north, 1 east, 2 south, 3 west.
+function directionOf(w: OsmElement): number {
+  const g = (w.geometry ?? []).filter((p): p is { lat: number; lon: number } => !!p);
+  if (g.length < 2) return 0;
+  const a = g[0];
+  const b = g[g.length - 1];
+  const deg = (Math.atan2((b.lon - a.lon) * Math.cos((a.lat * Math.PI) / 180), b.lat - a.lat) * 180) / Math.PI;
+  return Math.round(((deg + 360) % 360) / 90) % 4;
+}
+
+function pointToSegmentM(lat: number, lon: number, s: Seg): number {
+  const k = Math.cos((lat * Math.PI) / 180);
+  const px = (lon - s.aLon) * k * M_PER_DEG;
+  const py = (lat - s.aLat) * M_PER_DEG;
+  const dx = (s.bLon - s.aLon) * k * M_PER_DEG;
+  const dy = (s.bLat - s.aLat) * M_PER_DEG;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 ? Math.max(0, Math.min(1, (px * dx + py * dy) / len2)) : 0;
+  return Math.hypot(px - t * dx, py - t * dy);
+}
+
 type Node = { lat: number; lon: number; tags?: Record<string, string> };
-type RoadSeg = { way: number; aLat: number; aLon: number; bLat: number; bLon: number };
+type Seg = { way: number; aLat: number; aLon: number; bLat: number; bLon: number };
 
 export class StopMap {
   ways: OsmElement[] = [];
   nodes = new Map<number, Node>();
   nodeWays = new Map<number, number[]>();
   nodeGrid = new Map<string, number[]>();
-  roadSegGrid = new Map<string, RoadSeg[]>();
+  roadSegGrid = new Map<string, Seg[]>();
+  pathSegGrid = new Map<string, Seg[]>();
   signalGrid = new Map<string, Node[]>();
 
   constructor(elements: OsmElement[]) {
@@ -115,6 +161,7 @@ export class StopMap {
       const wayIndex = this.ways.push(e) - 1;
       const cls = roadClass(e.tags);
       const separated = isSeparatedLevel(e.tags);
+      const walk = isWalkPath(e.tags);
       e.nodes.forEach((id, i) => {
         const g = e.geometry![i];
         if (!g) return;
@@ -125,10 +172,10 @@ export class StopMap {
         }
         this.nodeWays.get(id)!.push(wayIndex);
         const next = e.geometry![i + 1];
-        if (cls && !separated && next) {
-          const seg = { way: wayIndex, aLat: g.lat, aLon: g.lon, bLat: next.lat, bLon: next.lon };
-          for (const key of cellsForBox(g.lat, g.lon, next.lat, next.lon)) push(this.roadSegGrid, key, seg);
-        }
+        if (!next) return;
+        const seg = { way: wayIndex, aLat: g.lat, aLon: g.lon, bLat: next.lat, bLon: next.lon };
+        if (cls && !separated) for (const key of cellsForBox(g.lat, g.lon, next.lat, next.lon)) push(this.roadSegGrid, key, seg);
+        if (walk) for (const key of cellsForBox(g.lat, g.lon, next.lat, next.lon)) push(this.pathSegGrid, key, seg);
       });
     }
   }
@@ -157,6 +204,25 @@ export class StopMap {
     return false;
   }
 
+  // A sidewalk is likely if the road is tagged with one, or a mapped footpath runs alongside.
+  hasSidewalkEvidence(way: number, lat: number, lon: number): boolean {
+    const s = this.ways[way].tags?.sidewalk ?? '';
+    if (/^(both|left|right|yes|separate)$/.test(s)) return true;
+    if (/^(no|none)$/.test(s)) return false;
+    const r = Math.floor(lat / CELL);
+    const c = Math.floor(lon / CELL);
+    for (let i = r - 1; i <= r + 1; i++) for (let j = c - 1; j <= c + 1; j++) {
+      for (const seg of this.pathSegGrid.get(`${i}:${j}`) ?? []) if (pointToSegmentM(lat, lon, seg) <= SIDEWALK_NEAR_M) return true;
+    }
+    return false;
+  }
+
+  maxLanes(ways: Iterable<number>): number {
+    let best = 0;
+    for (const w of ways) if (roadClass(this.ways[w].tags)) best = Math.max(best, lanesOf(this.ways[w].tags));
+    return best;
+  }
+
   analyze(coords: Coord[]): Analysis {
     const cum: number[] = [0];
     for (let i = 1; i < coords.length; i++) cum[i] = cum[i - 1] + distM(coords[i - 1][1], coords[i - 1][0], coords[i][1], coords[i][0]);
@@ -173,17 +239,32 @@ export class StopMap {
     };
 
     const raw: StopEvent[] = [];
-    const add = (i: number, level: Level, reason: string) => {
+    const add = (i: number, lanes: number, signalled: boolean, reason: string, roadWays: Iterable<number> = []) => {
       const lat = coords[i][1];
       const lon = coords[i][0];
-      const upgraded: Level = level !== 'signal' && this.nearSignal(lat, lon) ? 'signal' : level;
-      raw.push({ distM: cum[i], lat, lon, level: upgraded, reason });
+      const signal = signalled || this.nearSignal(lat, lon);
+      const l = Math.max(1, lanes);
+      const roads = [...roadWays].filter((w) => roadClass(this.ways[w].tags)).sort((a, b) => lanesOf(this.ways[b].tags) - lanesOf(this.ways[a].tags));
+      const widest = roads[0] === undefined ? undefined : this.ways[roads[0]];
+      const carriageways: Record<string, number> = {};
+      for (const w of roads) {
+        const t = this.ways[w].tags;
+        if (t?.oneway !== 'yes' || !t.name) continue;
+        // Key by road name and direction, so map pieces of the same half don't add up.
+        const key = `${t.name}|${directionOf(this.ways[w])}`;
+        carriageways[key] = Math.max(carriageways[key] ?? 0, lanesOf(t));
+      }
+      raw.push({ distM: cum[i], lat, lon, lanes: l, signal, wait: waitFor(l), weight: weightOf(l, signal), reason, road: widest?.tags?.name, carriageways });
     };
 
     let gates = 0;
     let privateM = 0;
     let serviceM = 0;
     let busyNoSidewalkM = 0;
+    let quietNoSidewalkM = 0;
+    let sidewalkPenalty = 0;
+    const noSidewalk: [number, number][][] = [];
+    let lastNoSidewalkEnd = -1;
     const traversedAt: Set<number>[] = [];
 
     for (let k = 0; k < matched.length; k++) {
@@ -194,31 +275,57 @@ export class StopMap {
       traversedAt[k] = traversed;
       const tags = this.nodes.get(id)?.tags;
       const onRoad = [...traversed].some((w) => roadClass(this.ways[w].tags));
+      const crossedHere = (this.nodeWays.get(id) ?? []).filter((w) => !traversed.has(w));
 
       if (tags?.barrier === 'gate') gates++;
-      if (isSignalNode(tags)) add(i, 'signal', 'traffic signal');
-      else if (tags?.highway === 'crossing' && !onRoad) add(i, tags.crossing === 'unmarked' ? 'minor' : 'major', 'crossing');
+      if (isSignalNode(tags)) {
+        add(i, this.maxLanes(crossedHere) || this.maxLanes(this.nodeWays.get(id) ?? []) || 2, true, 'traffic signal', crossedHere.length ? crossedHere : this.nodeWays.get(id) ?? []);
+      } else if (tags?.highway === 'crossing' && !onRoad) {
+        add(i, this.maxLanes(crossedHere) || 2, false, 'crossing', crossedHere);
+      }
 
       if (traversed.size > 0) {
-        for (const w of this.nodeWays.get(id) ?? []) {
-          if (traversed.has(w)) continue;
-          const cls = roadClass(this.ways[w].tags);
-          if (cls) add(i, cls, `${this.ways[w].tags?.highway} road`);
+        for (const w of crossedHere) {
+          if (roadClass(this.ways[w].tags)) add(i, lanesOf(this.ways[w].tags), false, `${this.ways[w].tags?.highway} road`, [w]);
         }
       }
 
       if (k + 1 < matched.length) {
-        const segLen = cum[matched[k + 1].i] - cum[i];
+        const j = matched[k + 1].i;
+        const segLen = cum[j] - cum[i];
         const crossing = after.map((w) => this.ways[w]).find((w) => w.tags?.footway === 'crossing');
         if (crossing) {
           const t = crossing.tags!;
           const signalled = t.crossing === 'traffic_signals' || t['crossing:signals'] === 'yes';
-          const crossesRealRoad = (crossing.nodes ?? []).some((n) => (this.nodeWays.get(n) ?? []).some((w) => roadClass(this.ways[w].tags)));
-          add(i, signalled ? 'signal' : crossesRealRoad ? 'major' : 'minor', 'crosswalk');
+          const roadsCrossed = new Set((crossing.nodes ?? []).flatMap((n) => this.nodeWays.get(n) ?? []));
+          add(i, this.maxLanes(roadsCrossed) || 1, signalled, 'crosswalk', roadsCrossed);
         }
         if (after.length > 0 && after.every((w) => isPrivate(this.ways[w].tags))) privateM += segLen;
         if (after.length > 0 && after.every((w) => this.ways[w].tags?.highway === 'service')) serviceM += segLen;
-        if (after.length > 0 && after.every((w) => isBusyNoSidewalk(this.ways[w].tags))) busyNoSidewalkM += segLen;
+
+        // Running along a road: is there any sign of a sidewalk here?
+        const road = after.find((w) => roadClass(this.ways[w].tags));
+        if (road !== undefined && !after.some((w) => isWalkPath(this.ways[w].tags))) {
+          const midLat = (coords[i][1] + coords[j][1]) / 2;
+          const midLon = (coords[i][0] + coords[j][0]) / 2;
+          const evidence = [[coords[i][1], coords[i][0]], [midLat, midLon], [coords[j][1], coords[j][0]]]
+            .filter(([la, lo]) => this.hasSidewalkEvidence(road, la, lo)).length >= 2;
+          if (!evidence) {
+            const t = this.ways[road].tags;
+            const lanes = lanesOf(t);
+            if (roadClass(t) === 'major') {
+              busyNoSidewalkM += segLen;
+              sidewalkPenalty += segLen * 3;
+            } else {
+              quietNoSidewalkM += segLen;
+              sidewalkPenalty += segLen * (lanes >= 5 ? 3 : lanes >= 3 ? 2 : 1);
+            }
+            const piece = coords.slice(i, j + 1).map((c) => [c[0], c[1]] as [number, number]);
+            if (lastNoSidewalkEnd === i && noSidewalk.length) noSidewalk.at(-1)!.push(...piece.slice(1));
+            else noSidewalk.push(piece);
+            lastNoSidewalkEnd = j;
+          }
+        }
       }
     }
 
@@ -231,36 +338,35 @@ export class StopMap {
       if ([...local].some((w) => isSeparatedLevel(this.ways[w].tags))) continue;
       const a = coords[i - 1];
       const b = coords[i];
-      const seen = new Set<RoadSeg>();
+      const seen = new Set<Seg>();
       for (const key of cellsForBox(a[1], a[0], b[1], b[0])) {
         for (const s of this.roadSegGrid.get(key) ?? []) {
           if (seen.has(s) || local.has(s.way)) continue;
           seen.add(s);
           if (segmentsCross(a[1], a[0], b[1], b[0], s.aLat, s.aLon, s.bLat, s.bLon)) {
-            const cls = roadClass(this.ways[s.way].tags)!;
-            add(i, cls, `${this.ways[s.way].tags?.highway} road, no shared node`);
+            add(i, lanesOf(this.ways[s.way].tags), false, `${this.ways[s.way].tags?.highway} road, no shared node`, [s.way]);
           }
         }
       }
     }
 
     const events = cluster(raw);
-    const signals = events.filter((e) => e.level === 'signal').length;
-    const major = events.filter((e) => e.level === 'major').length;
-    const minor = events.filter((e) => e.level === 'minor').length;
-
     return {
       distanceM: cum.at(-1) ?? 0,
       gainM: elevationGain(coords),
       events,
-      signals,
-      major,
-      minor,
+      signals: events.filter((e) => e.signal).length,
+      long: events.filter((e) => e.wait === 'long').length,
+      medium: events.filter((e) => e.wait === 'medium').length,
+      short: events.filter((e) => e.wait === 'short').length,
       total: events.length,
-      weighted: signals * WEIGHTS.signal + major * WEIGHTS.major + minor * WEIGHTS.minor,
+      weighted: events.reduce((n, e) => n + e.weight, 0),
       privateM,
       serviceM,
       busyNoSidewalkM,
+      quietNoSidewalkM,
+      sidewalkPenalty: sidewalkPenalty / 100,
+      noSidewalk,
       gates,
       retraceShare: retraceShare(coords),
       matchedShare: coords.length ? matched.length / coords.length : 0,
@@ -268,19 +374,53 @@ export class StopMap {
   }
 }
 
+// Map nodes from one intersection become one stop: the widest road and any signal win.
+// Both halves of a divided road become one crossing, as wide as the two halves together.
 export function cluster(raw: StopEvent[]): StopEvent[] {
   const sorted = [...raw].sort((a, b) => a.distM - b.distM);
   const out: StopEvent[] = [];
+  const startOf = new Map<StopEvent, number>();
+  let latest = -Infinity; // distance of the most recent point added to the current stop
   for (const e of sorted) {
     const last = out.at(-1);
-    if (last && e.distM - last.distM <= CLUSTER_M) {
-      if (RANK[e.level] > RANK[last.level]) {
-        last.level = e.level;
-        last.reason = e.reason;
-      }
-    } else out.push({ ...e });
+    const start = last ? startOf.get(last) ?? last.distM : 0;
+    const nearby = !!last && e.distM - latest <= CLUSTER_M && e.distM - start <= INTERSECTION_M;
+    const lastNames = new Set(Object.keys(last?.carriageways ?? {}).map((k) => k.split('|')[0]));
+    const sameDividedRoad = !!last && Object.keys(e.carriageways ?? {}).some((k) => lastNames.has(k.split('|')[0]))
+      && e.distM - start <= DIVIDED_ROAD_M;
+    if (last && (nearby || sameDividedRoad)) {
+      if (e.weight > last.weight) last.reason = e.reason;
+      for (const [key, lanes] of Object.entries(e.carriageways ?? {})) last.carriageways![key] = Math.max(last.carriageways![key] ?? 0, lanes);
+      const divided = dividedWidth(last.carriageways!);
+      last.lanes = Math.max(last.lanes, e.lanes, divided);
+      last.signal = last.signal || e.signal;
+      last.wait = waitFor(last.lanes);
+      last.weight = weightOf(last.lanes, last.signal);
+      if (!last.road) last.road = e.road;
+    } else {
+      const copy = { ...e, carriageways: { ...e.carriageways } };
+      startOf.set(copy, e.distM);
+      out.push(copy);
+    }
+    latest = e.distM;
   }
   return out;
+}
+
+// Width of the widest divided road crossed: both halves together, when halves in opposite directions are present.
+function dividedWidth(carriageways: Record<string, number>): number {
+  const byName = new Map<string, Map<number, number>>();
+  for (const [key, lanes] of Object.entries(carriageways)) {
+    const [name, dir] = key.split('|');
+    if (!byName.has(name)) byName.set(name, new Map());
+    byName.get(name)!.set(Number(dir), lanes);
+  }
+  let best = 0;
+  for (const dirs of byName.values()) {
+    if (![...dirs.keys()].some((d) => dirs.has((d + 2) % 4))) continue;
+    best = Math.max(best, [...dirs.values()].reduce((a, b) => a + b, 0));
+  }
+  return best;
 }
 
 function segKey(a: Coord, b: Coord): string {
