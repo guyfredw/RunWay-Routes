@@ -45,13 +45,38 @@ These stricter rules were added for the local routes, so the 18-route results ab
 - Service roads are limited to 5% of a route, down from 10%.
 - Primary, secondary and trunk roads with no sidewalk tag are limited to 2% of a route.
 
-## Field test
+## Field test 1: 5 km out-and-back
+**Watch:** the route imported to COROS. Turn alerts appeared and were correct, and the start flag caused no problems. The turnaround wasn't tested because the runner left the route to stay on sidewalks.
+
+**Stops:** about 6 actual stops on a 5 km run that left the planned route, against 12 estimated for the planned route. NW 74th St was one long crosswalk, with one stop on each pass.
+
+**Route:** About 800 m of NW 102nd Ave, north of NW 66th St, had no sidewalk, so the route ran on the road. The map has no sidewalk tag or footpath alongside that stretch. The crossing of NW 74th St, mapped with 4–5 lanes, also suggested that wide roads mean longer waits.
+
+**Changes made:**
+- **Sidewalk evidence:** a road section counts as having a sidewalk if it's tagged with one or a mapped footpath runs within 20 m. Sections with neither add a penalty that grows with road width. Tertiary and busier roads with neither are limited to 2% of a route. Both route profiles also cost roads with no sidewalk tag more, by lane count.
+- **Waits by road width:** each stop is rated short (1–2 lanes), medium (3–4) or long (5 or more), using the mapped lane count or a default for the road type. A traffic signal adds weight. Weights: short 1, medium 3, long 5, plus 3 for a signal.
+- **Map viewer:** shows wait levels, signals, and road sections with no sign of a sidewalk.
+- **One stop per intersection:** nearby crossings within 35 m of each other become one stop, up to 60 m in total. Both halves of a divided road with the same name become one crossing within 80 m, rated by their combined lanes. NW 74th St now counts once per pass, as a long wait with a signal (9 lanes across both halves).
+
+**Checked against the run:** under the new rules, the planned route scores 10 estimated stops, against 12 before. It also has 3,241 m with no sign of a sidewalk, counting both directions, and the NW 74th St crossing rates as one long wait with a signal on each pass. The new 5 km out-and-back avoids that stretch, with 0 m flagged.
+
+**Not yet measured:** stop-count accuracy, because the runner left the planned route. A GPX export of the actual run would allow a direct comparison.
+
+**Known limits:**
+- **False alarms:** about half of the flagged distance on the route that was run, south of NW 66th St and along NW 62nd St, actually had sidewalks according to the runner. Neighborhood streets often have no mapped footpaths, so longer routes can show a lot of flagged distance.
+- **Short waits:** quiet side streets often don't mean an actual stop, so totals may run high.
+- **Signals on smaller roads:** crossing a small road at a signal on a big road can still mean a long wait, but it's rated by the smaller road's width.
+- **16 km loop:** no candidate met the rules from the owner's start point.
+
+## Field test 2
 Routes now start from the owner's private start point, stored in `data/local-start.json`. That file and the generated routes are excluded from Git by `.gitignore`, so don't share them publicly. Generate them with `src/run-local.ts`, then open `output/local/viewer.html`.
 
 Check each route on the viewer and in person before relying on it. Follow traffic rules, and skip any section that looks unsafe or private.
 
-1. `output/local/runway-5km-out-and-back.gpx`: 12 estimated stops, against 19 for the comparison route. The farthest point is 1.9 km from the start.
-2. `output/local/runway-5km-loop.gpx`: 30 estimated stops, against 35 for the comparison route, with no signals on the chosen route. It's 4.83 km and includes several side streets.
+1. `output/local/runway-5km-out-and-back.gpx`: 12 estimated stops (4 medium, 8 short, 2 with signals), against 18 for the comparison route. It follows NW 78th Terrace, then sidewalks and footpaths, mostly along NW 74th St, with 0 m flagged as having no sign of a sidewalk.
+2. `output/local/runway-10km-out-and-back.gpx`: 19 estimated stops (4 medium, 15 short, 4 with signals), against 45 for the comparison route. It follows the same start, with about 3 km on the NW 74th St sidewalk, and turns around on NW 87th Ave. 330 m is flagged as having no sign of a sidewalk.
+
+The 5 km loop has 1,662 m flagged as having no sign of a sidewalk and touches the NW 102nd Ave area, so review it on the map before running it.
 
 Other 5, 10 and 16 km routes are in the same folder.
 

@@ -11,7 +11,8 @@ const SEEDS = [0, 10, 20];
 
 const gpx = (name: string, coords: Coord[]) => `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="RunWay Routes prototype" xmlns="http://www.topografix.com/GPX/1/1">\n<metadata><name>${name}</name></metadata>\n<trk><name>${name}</name><trkseg>\n${coords.map(([lon, lat, ele]) => `<trkpt lat="${lat.toFixed(6)}" lon="${lon.toFixed(6)}">${ele !== undefined ? `<ele>${ele.toFixed(1)}</ele>` : ''}</trkpt>`).join('\n')}\n</trkseg></trk>\n</gpx>\n`;
 const stats = (c: Candidate) => ({
-  km: +(c.analysis.distanceM / 1000).toFixed(2), total: c.analysis.total, signals: c.analysis.signals, major: c.analysis.major, minor: c.analysis.minor, weighted: c.analysis.weighted,
+  km: +(c.analysis.distanceM / 1000).toFixed(2), total: c.analysis.total, signals: c.analysis.signals, long: c.analysis.long, medium: c.analysis.medium, short: c.analysis.short, weighted: c.analysis.weighted,
+  noSidewalkM: Math.round(c.analysis.quietNoSidewalkM + c.analysis.busyNoSidewalkM),
   retracePct: Math.round(c.analysis.retraceShare * 100), servicePct: +(c.analysis.serviceM / c.analysis.distanceM * 100).toFixed(1), busyPct: +(c.analysis.busyNoSidewalkM / c.analysis.distanceM * 100).toFixed(1),
   farthestKm: +(Math.max(...c.coords.map((p) => distM(start.lat, start.lon, p[1], p[0]))) / 1000).toFixed(1),
   startGapM: Math.round(distM(start.lat, start.lon, c.coords[0][1], c.coords[0][0])),
@@ -38,7 +39,7 @@ for (const km of [5, 10, 16]) for (const type of ['out-and-back', 'loop'] as Cou
     if (!c) continue;
     const name = `RunWay ${km}km ${type}${suffix}`;
     writeFileSync(`output/local/${name.toLowerCase().replace(/ /g, '-')}.gpx`, gpx(name, c.coords));
-    viewer.push({ label: `${label}${suffix}`, start, runway: { coords: c.coords.map((p) => [p[0], p[1]]), events: c.analysis.events, stats: stats(c) }, baseline: !suffix && compare ? { coords: compare.coords.map((p) => [p[0], p[1]]), stats: stats(compare) } : null });
+    viewer.push({ label: `${label}${suffix}`, start, runway: { coords: c.coords.map((p) => [p[0], p[1]]), events: c.analysis.events, noSidewalk: c.analysis.noSidewalk, stats: stats(c) }, baseline: !suffix && compare ? { coords: compare.coords.map((p) => [p[0], p[1]]), stats: stats(compare) } : null });
   }
 }
 writeFileSync('output/local/results.json', JSON.stringify(rows, null, 2));

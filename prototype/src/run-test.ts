@@ -25,8 +25,10 @@ const summary = (c: Candidate | null) => c && {
   km: +(c.analysis.distanceM / 1000).toFixed(2),
   gainM: Math.round(c.analysis.gainM),
   signals: c.analysis.signals,
-  major: c.analysis.major,
-  minor: c.analysis.minor,
+  long: c.analysis.long,
+  medium: c.analysis.medium,
+  short: c.analysis.short,
+  noSidewalkM: Math.round(c.analysis.quietNoSidewalkM + c.analysis.busyNoSidewalkM),
   total: c.analysis.total,
   weighted: c.analysis.weighted,
   retracePct: Math.round(c.analysis.retraceShare * 100),
@@ -76,7 +78,7 @@ async function main() {
       writeFileSync(`output/gpx/${slug(label)}.gpx`, toGpx(`RunWay ${km}km ${type}`, chosen.coords));
       viewer.push({
         label, start,
-        runway: { coords: chosen.coords.map((c) => [c[0], c[1]]), events: chosen.analysis.events, stats: row.runway },
+        runway: { coords: chosen.coords.map((c) => [c[0], c[1]]), events: chosen.analysis.events, noSidewalk: chosen.analysis.noSidewalk, stats: row.runway },
         baseline: base && { coords: base.coords.map((c) => [c[0], c[1]]), stats: row.baseline },
       });
     }
@@ -94,6 +96,8 @@ async function main() {
   console.log(`Candidates within 5%: ${results.reduce((n, r) => n + r.inTolerance, 0)}/${results.reduce((n, r) => n + r.candidates, 0)}`);
   console.log(`Total stops: ${sum((r) => r.runway.total)} vs ${sum((r) => r.baseline.total)} (${pct(sum((r) => r.runway.total), sum((r) => r.baseline.total))}% fewer)`);
   console.log(`Signals: ${sum((r) => r.runway.signals)} vs ${sum((r) => r.baseline.signals)}`);
+  console.log(`Long waits: ${sum((r) => r.runway.long)} vs ${sum((r) => r.baseline.long)}`);
+  console.log(`Road with no sign of a sidewalk (m): ${sum((r) => r.runway.noSidewalkM)} vs ${sum((r) => r.baseline.noSidewalkM)}`);
   console.log(`Weighted: ${sum((r) => r.runway.weighted)} vs ${sum((r) => r.baseline.weighted)} (${pct(sum((r) => r.runway.weighted), sum((r) => r.baseline.weighted))}% lower)`);
   console.log(`Cases at 30%+ weighted reduction: ${ok.filter((r) => r.weightedReductionPct >= 30).length}/${ok.length}`);
   console.log(`Generation seconds: median ${secs[Math.floor(secs.length / 2)]}, max ${secs.at(-1)}`);
