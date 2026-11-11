@@ -68,15 +68,29 @@ These stricter rules were added for the local routes, so the 18-route results ab
 - **Signals on smaller roads:** crossing a small road at a signal on a big road can still mean a long wait, but it's rated by the smaller road's width.
 - **16 km loop:** no candidate met the rules from the owner's start point.
 
-## Field test 2
-Routes now start from the owner's private start point, stored in `data/local-start.json`. That file and the generated routes are excluded from Git by `.gitignore`, so don't share them publicly. Generate them with `src/run-local.ts`, then open `output/local/viewer.html`.
+## Field test 2: new 5 km out-and-back
+**Watch:** the route stayed on course, with a median of 8 m and at most 61 m from the planned line, and the runner reached the turnaround. The GPS distance was 5.03 km.
+
+**Stops:** the only crossing stops were at the traffic signal at NW 97th Ave, once each way, which was predicted. The runner didn't stop at the crosswalk with a stop sign for cars at NW 78th Terrace and NW 102nd Ave, because pedestrians have priority there, and the recording agrees. The other pauses were watch checks at the turnaround to confirm the right spot. The estimate had been 12 stops. Of the 10 unsignalled crossings predicted, the recording shows the runner passing nearly all at full running speed (about 2.2–2.7 m/s).
+
+**Not on the map:** no stop or yield signs are mapped near the NW 78th Terrace and NW 102nd Ave crosswalk. It counts as an unsignalled 4-lane crossing, which matches what happened.
+
+**Turnaround:** the runner had to check the watch to confirm the turnaround point. A marked turnaround point in the GPX file could help.
+
+**Changes made:**
+- **Likely stops:** only traffic signals and unsignalled crossings of 5 or more lanes now count as likely stops. Other crossings are counted separately and shown smaller on the map.
+- **Weights:** signal crossings score 4–8 by road width. Unsignalled crossings score 0.5 (1–2 lanes), 1 (3–4 lanes) or 5 (5 or more lanes).
+
+**Checked against the run:** the route that was run now scores 2 likely stops, both at the NW 97th Ave signal, plus 10 other crossings. That matches the 2 actual crossing stops.
+
+## Current routes
+Routes start from the owner's private start point, stored in `data/local-start.json`. That file and the generated routes are excluded from Git by `.gitignore`, so don't share them publicly. Generate them with `src/run-local.ts`, then open `output/local/viewer.html`.
 
 Check each route on the viewer and in person before relying on it. Follow traffic rules, and skip any section that looks unsafe or private.
 
-1. `output/local/runway-5km-out-and-back.gpx`: 12 estimated stops (4 medium, 8 short, 2 with signals), against 18 for the comparison route. It follows NW 78th Terrace, then sidewalks and footpaths, mostly along NW 74th St, with 0 m flagged as having no sign of a sidewalk.
-2. `output/local/runway-10km-out-and-back.gpx`: 19 estimated stops (4 medium, 15 short, 4 with signals), against 45 for the comparison route. It follows the same start, with about 3 km on the NW 74th St sidewalk, and turns around on NW 87th Ave. 330 m is flagged as having no sign of a sidewalk.
-
-The 5 km loop has 1,662 m flagged as having no sign of a sidewalk and touches the NW 102nd Ave area, so review it on the map before running it.
+1. `output/local/runway-5km-out-and-back.gpx`: 0 likely stops and 24 other crossings. It runs north along the NW 107th Ave sidewalk to NW 90th St. Its score is nearly tied with option 2, and it crosses several larger streets, such as NW 82nd St, where no signal is mapped, so check those crossings in person.
+2. `output/local/runway-5km-out-and-back-option-2.gpx`: 2 likely stops (the NW 97th Ave signal) and 10 other crossings. It follows the same corridor as the route that was run.
+3. `output/local/runway-10km-out-and-back.gpx`: 4 likely stops, all signals, and 15 other crossings. 330 m is flagged as having no sign of a sidewalk.
 
 Other 5, 10 and 16 km routes are in the same folder.
 

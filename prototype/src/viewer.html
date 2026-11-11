@@ -20,9 +20,9 @@
   <select id="route" aria-label="Route"></select>
   <label><input type="checkbox" id="base"> Show comparison route (gray)</label>
   <div>
-    <span class="key" style="background:#d62728"></span>Long wait (5+ lanes)
-    <span class="key" style="background:#ff7f0e"></span>Medium wait (3&ndash;4 lanes)
-    <span class="key" style="background:#f2c200"></span>Short wait (1&ndash;2 lanes)
+    <span class="key" style="background:#d62728;width:14px;height:14px"></span>Likely stop (signal or 5+ lanes)
+    <span class="key" style="background:#ff7f0e;width:8px;height:8px"></span>Crossing, 3&ndash;4 lanes
+    <span class="key" style="background:#f2c200;width:8px;height:8px"></span>Crossing, 1&ndash;2 lanes
     <span class="key" style="background:#fff;border:3px solid #111;width:8px;height:8px"></span>Traffic signal
     <span class="key" style="background:#8e44ad;border-radius:2px;height:4px;vertical-align:3px"></span>No sign of a sidewalk
   </div>
@@ -32,18 +32,19 @@
 <script>
 const DATA = /*DATA*/null;
 const COLORS = { long: '#d62728', medium: '#ff7f0e', short: '#f2c200' };
+const LIKELY = '#d62728';
 const select = document.getElementById('route');
 DATA.forEach((d, i) => select.add(new Option(d.label, i)));
 const map = new maplibregl.Map({ container: 'map', style: 'https://tiles.openfreemap.org/styles/liberty', center: [-80.35, 25.82], zoom: 13 });
 map.addControl(new maplibregl.NavigationControl());
 const line = (coords) => ({ type: 'Feature', geometry: { type: 'LineString', coordinates: coords || [] }, properties: {} });
-const describe = (s) => `${s.km} km, ${s.total} estimated stops (${s.long} long, ${s.medium} medium, ${s.short} short waits; ${s.signals} with signals), ${s.noSidewalkM} m with no sign of a sidewalk`;
+const describe = (s) => `${s.km} km, ${s.likelyStops} likely stops (${s.signals} with signals) and ${s.otherCrossings} other crossings, ${s.noSidewalkM} m with no sign of a sidewalk`;
 function show() {
   const d = DATA[+select.value];
   const showBase = document.getElementById('base').checked && d.baseline;
   map.getSource('runway').setData(line(d.runway.coords));
   map.getSource('baseline').setData(line(showBase ? d.baseline.coords : []));
-  map.getSource('events').setData({ type: 'FeatureCollection', features: d.runway.events.map((e) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [e.lon, e.lat] }, properties: { color: COLORS[e.wait], stroke: e.signal ? '#111' : '#fff', width: e.signal ? 3 : 1 } })) });
+  map.getSource('events').setData({ type: 'FeatureCollection', features: d.runway.events.map((e) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [e.lon, e.lat] }, properties: { color: e.likely ? LIKELY : COLORS[e.wait], radius: e.likely ? 8 : 4, stroke: e.signal ? '#111' : '#fff', width: e.signal ? 3 : 1 } })) });
   map.getSource('nosidewalk').setData({ type: 'FeatureCollection', features: (d.runway.noSidewalk || []).map((c) => line(c)) });
   map.getSource('start').setData({ type: 'Point', coordinates: [d.start.lon, d.start.lat] });
   document.getElementById('stats').textContent = `RunWay: ${describe(d.runway.stats)}` + (d.baseline ? ` | Comparison: ${describe(d.baseline.stats)}` : '');
@@ -58,7 +59,7 @@ map.on('load', () => {
   map.addLayer({ id: 'baseline', type: 'line', source: 'baseline', paint: { 'line-color': '#777', 'line-width': 4, 'line-opacity': 0.7 } });
   map.addLayer({ id: 'runway', type: 'line', source: 'runway', paint: { 'line-color': '#0b6bcb', 'line-width': 4 } });
   map.addLayer({ id: 'nosidewalk', type: 'line', source: 'nosidewalk', paint: { 'line-color': '#8e44ad', 'line-width': 7, 'line-opacity': 0.6, 'line-dasharray': [1, 1] } });
-  map.addLayer({ id: 'events', type: 'circle', source: 'events', paint: { 'circle-radius': 6, 'circle-color': ['get', 'color'], 'circle-stroke-color': ['get', 'stroke'], 'circle-stroke-width': ['get', 'width'] } });
+  map.addLayer({ id: 'events', type: 'circle', source: 'events', paint: { 'circle-radius': ['get', 'radius'], 'circle-color': ['get', 'color'], 'circle-stroke-color': ['get', 'stroke'], 'circle-stroke-width': ['get', 'width'] } });
   map.addLayer({ id: 'start', type: 'circle', source: 'start', paint: { 'circle-radius': 8, 'circle-color': '#14833b', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
   show();
 });
