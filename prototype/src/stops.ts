@@ -1,4 +1,6 @@
 // Estimates likely running stops along a route using OpenStreetMap data.
+// Field tests showed runners usually cross unsignalled crossings without stopping,
+// so only traffic signals and very wide roads count as likely stops.
 // Each stop gets a wait estimate from the width of the road crossed (lanes),
 // plus extra weight for traffic signals. Also measures road sections with no
 // evidence of a sidewalk.
@@ -7,6 +9,7 @@ export type Coord = [lon: number, lat: number, ele?: number];
 export type Wait = 'short' | 'medium' | 'long';
 export type StopEvent = {
   distM: number; lat: number; lon: number; lanes: number; signal: boolean; wait: Wait; weight: number; reason: string;
+  likely: boolean; // a likely stop, not just a crossing
   road?: string; // name of the road crossed
   carriageways?: Record<string, number>; // one-way halves of divided roads crossed here: 'name|direction' -> lanes
 };
@@ -30,6 +33,8 @@ export type Analysis = {
   medium: number;
   short: number;
   total: number;
+  likelyStops: number;
+  otherCrossings: number;
   weighted: number;
   privateM: number;
   serviceM: number;
@@ -44,6 +49,9 @@ export type Analysis = {
 
 export const WAIT_WEIGHTS: Record<Wait, number> = { short: 1, medium: 3, long: 5 };
 export const SIGNAL_WEIGHT = 3;
+// Unsignalled crossings narrower than 5 lanes rarely meant a stop in field tests.
+export const CROSSING_WEIGHTS: Record<Wait, number> = { short: 0.5, medium: 1, long: 5 };
+export const LIKELY_STOP_LANES = 5;
 const DEFAULT_LANES: Record<string, number> = { trunk: 4, primary: 4, secondary: 4, tertiary: 2, residential: 2, unclassified: 2, living_street: 1, service: 1 };
 const CLUSTER_M = 35;
 const INTERSECTION_M = 60; // Longest stretch of nearby map points treated as one intersection.
@@ -88,7 +96,10 @@ export function waitFor(lanes: number): Wait {
   return lanes >= 5 ? 'long' : lanes >= 3 ? 'medium' : 'short';
 }
 
-export const weightOf = (lanes: number, signal: boolean) => WAIT_WEIGHTS[waitFor(lanes)] + (signal ? SIGNAL_WEIGHT : 0);
+export const isLikelyStop = (lanes: number, signal: boolean) => signal || lanes >= LIKELY_STOP_LANES;
+
+export const weightOf = (lanes: number, signal: boolean) =>
+  signal ? WAIT_WEIGHTS[waitFor(lanes)] + SIGNAL_WEIGHT : CROSSING_WEIGHTS[waitFor(lanes)];
 
 function roadClass(tags: Record<string, string> | undefined): 'major' | 'minor' | null {
   const h = tags?.highway ?? '';
@@ -254,7 +265,7 @@ export class StopMap {
         const key = `${t.name}|${directionOf(this.ways[w])}`;
         carriageways[key] = Math.max(carriageways[key] ?? 0, lanesOf(t));
       }
-      raw.push({ distM: cum[i], lat, lon, lanes: l, signal, wait: waitFor(l), weight: weightOf(l, signal), reason, road: widest?.tags?.name, carriageways });
+      raw.push({ distM: cum[i], lat, lon, lanes: l, signal, wait: waitFor(l), weight: weightOf(l, signal), likely: isLikelyStop(l, signal), reason, road: widest?.tags?.name, carriageways });
     };
 
     let gates = 0;
@@ -360,6 +371,8 @@ export class StopMap {
       medium: events.filter((e) => e.wait === 'medium').length,
       short: events.filter((e) => e.wait === 'short').length,
       total: events.length,
+      likelyStops: events.filter((e) => e.likely).length,
+      otherCrossings: events.filter((e) => !e.likely).length,
       weighted: events.reduce((n, e) => n + e.weight, 0),
       privateM,
       serviceM,
@@ -396,6 +409,7 @@ export function cluster(raw: StopEvent[]): StopEvent[] {
       last.signal = last.signal || e.signal;
       last.wait = waitFor(last.lanes);
       last.weight = weightOf(last.lanes, last.signal);
+      last.likely = isLikelyStop(last.lanes, last.signal);
       if (!last.road) last.road = e.road;
     } else {
       const copy = { ...e, carriageways: { ...e.carriageways } };

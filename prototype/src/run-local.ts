@@ -11,7 +11,7 @@ const SEEDS = [0, 10, 20];
 
 const gpx = (name: string, coords: Coord[]) => `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="RunWay Routes prototype" xmlns="http://www.topografix.com/GPX/1/1">\n<metadata><name>${name}</name></metadata>\n<trk><name>${name}</name><trkseg>\n${coords.map(([lon, lat, ele]) => `<trkpt lat="${lat.toFixed(6)}" lon="${lon.toFixed(6)}">${ele !== undefined ? `<ele>${ele.toFixed(1)}</ele>` : ''}</trkpt>`).join('\n')}\n</trkseg></trk>\n</gpx>\n`;
 const stats = (c: Candidate) => ({
-  km: +(c.analysis.distanceM / 1000).toFixed(2), total: c.analysis.total, signals: c.analysis.signals, long: c.analysis.long, medium: c.analysis.medium, short: c.analysis.short, weighted: c.analysis.weighted,
+  km: +(c.analysis.distanceM / 1000).toFixed(2), total: c.analysis.total, likelyStops: c.analysis.likelyStops, otherCrossings: c.analysis.otherCrossings, signals: c.analysis.signals, long: c.analysis.long, medium: c.analysis.medium, short: c.analysis.short, weighted: c.analysis.weighted,
   noSidewalkM: Math.round(c.analysis.quietNoSidewalkM + c.analysis.busyNoSidewalkM),
   retracePct: Math.round(c.analysis.retraceShare * 100), servicePct: +(c.analysis.serviceM / c.analysis.distanceM * 100).toFixed(1), busyPct: +(c.analysis.busyNoSidewalkM / c.analysis.distanceM * 100).toFixed(1),
   farthestKm: +(Math.max(...c.coords.map((p) => distM(start.lat, start.lon, p[1], p[0]))) / 1000).toFixed(1),

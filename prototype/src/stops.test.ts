@@ -22,7 +22,9 @@ test('a two-lane side street is a short wait', () => {
   const a = new StopMap([path, sideRoad({ highway: 'residential', lanes: '2' })]).analyze(route);
   assert.equal(a.short, 1);
   assert.equal(a.total, 1);
-  assert.equal(a.weighted, 1);
+  assert.equal(a.weighted, 0.5);
+  assert.equal(a.likelyStops, 0);
+  assert.equal(a.otherCrossings, 1);
 });
 
 test('a four-lane road is a medium wait', () => {
@@ -86,6 +88,29 @@ test('merges map nodes from one intersection, keeping the widest road', () => {
   const a = new StopMap([p, way(2, [[2, at(200)], [10, east(200)]], { highway: 'residential' }), way(3, [[4, at(215)], [11, east(215)]], { highway: 'primary', lanes: '6' })]).analyze([at(0), at(200), at(215), at(400)]);
   assert.equal(a.total, 1);
   assert.equal(a.long, 1);
+});
+
+test('a traffic signal is a likely stop, even on a narrow road', () => {
+  const signal: OsmElement = { type: 'node', id: 2, lon: at(200)[0], lat: at(200)[1], tags: { highway: 'traffic_signals' } };
+  const a = new StopMap([signal, path, sideRoad({ highway: 'residential', lanes: '2' })]).analyze(route);
+  assert.equal(a.likelyStops, 1);
+  assert.equal(a.otherCrossings, 0);
+});
+
+test('an unsignalled road of 5 or more lanes is a likely stop', () => {
+  const a = new StopMap([path, sideRoad({ highway: 'primary', lanes: '5' })]).analyze(route);
+  assert.equal(a.likelyStops, 1);
+});
+
+test('an unsignalled four-lane crosswalk is a crossing, not a likely stop', () => {
+  const a = new StopMap([path, sideRoad({ highway: 'secondary', lanes: '4' })]).analyze(route);
+  assert.equal(a.likelyStops, 0);
+  assert.equal(a.otherCrossings, 1);
+});
+
+test('signals outweigh unsignalled crossings of the same width', () => {
+  assert.ok(weightOf(4, true) > weightOf(4, false) * 3);
+  assert.ok(weightOf(2, false) < 1);
 });
 
 // A divided road: two one-way halves with the same name, 40 m apart.

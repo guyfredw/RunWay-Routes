@@ -30,6 +30,8 @@ const summary = (c: Candidate | null) => c && {
   short: c.analysis.short,
   noSidewalkM: Math.round(c.analysis.quietNoSidewalkM + c.analysis.busyNoSidewalkM),
   total: c.analysis.total,
+  likelyStops: c.analysis.likelyStops,
+  otherCrossings: c.analysis.otherCrossings,
   weighted: c.analysis.weighted,
   retracePct: Math.round(c.analysis.retraceShare * 100),
   matchedPct: Math.round(c.analysis.matchedShare * 100),
@@ -95,6 +97,7 @@ async function main() {
   console.log(`Cases: ${results.length}, with a usable route: ${results.filter((r) => r.runway).length}, compared: ${ok.length}`);
   console.log(`Candidates within 5%: ${results.reduce((n, r) => n + r.inTolerance, 0)}/${results.reduce((n, r) => n + r.candidates, 0)}`);
   console.log(`Total stops: ${sum((r) => r.runway.total)} vs ${sum((r) => r.baseline.total)} (${pct(sum((r) => r.runway.total), sum((r) => r.baseline.total))}% fewer)`);
+  console.log(`Likely stops: ${sum((r) => r.runway.likelyStops)} vs ${sum((r) => r.baseline.likelyStops)}`);
   console.log(`Signals: ${sum((r) => r.runway.signals)} vs ${sum((r) => r.baseline.signals)}`);
   console.log(`Long waits: ${sum((r) => r.runway.long)} vs ${sum((r) => r.baseline.long)}`);
   console.log(`Road with no sign of a sidewalk (m): ${sum((r) => r.runway.noSidewalkM)} vs ${sum((r) => r.baseline.noSidewalkM)}`);
