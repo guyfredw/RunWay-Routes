@@ -5,3 +5,6 @@ node_modules/
 next-env.d.ts
 *.tsbuildinfo
 data/
+web/public/maplibre-gl-worker.mjs
+web/test-results/
+web/playwright-report/

@@ -14,7 +14,8 @@
     "test": "npm run test -w @runway/routing && npm run test -w @runway/pipeline",
     "typecheck": "npm run typecheck -w @runway/routing && npm run typecheck -w @runway/pipeline && npm run typecheck -w @runway/web",
     "build": "npm run build -w @runway/web",
-    "dev": "npm run dev -w @runway/web"
+    "dev": "npm run dev -w @runway/web",
+    "test:e2e": "npm run test:e2e -w @runway/web"
   },
   "devDependencies": {
     "@types/node": "24.19.2",
