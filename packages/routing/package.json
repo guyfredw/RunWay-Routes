@@ -5,10 +5,11 @@
   "description": "Route generation, stop estimates and GPX output for RunWay Routes",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./tiles": "./src/tiles.ts"
   },
   "scripts": {
-    "test": "node --test src/stops.test.ts src/gpx.test.ts",
+    "test": "node --test src/stops.test.ts src/gpx.test.ts src/tiles.test.ts",
     "typecheck": "tsc --noEmit -p ."
   }
 }
