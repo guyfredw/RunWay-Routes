@@ -1,0 +1,14 @@
+{
+  "name": "@runway/routing",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Route generation, stop estimates and GPX output for RunWay Routes",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test src/stops.test.ts src/gpx.test.ts",
+    "typecheck": "tsc --noEmit -p ."
+  }
+}

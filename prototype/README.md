@@ -111,6 +111,8 @@ Record:
 - Any section that was blocked, private or unsafe
 
 ## Setup
+The scripts here import the route code from `../packages/routing/src`.
+
 These large or private files aren't stored in Git, so you need to add them after cloning:
 - **Java:** a Java 21 runtime in `vendor/java/`, such as [Eclipse Temurin](https://adoptium.net/)
 - **BRouter:** [version 1.7.10](https://github.com/abrensch/brouter/releases/tag/v1.7.10), unzipped to `vendor/brouter/`, with an empty `vendor/brouter/customprofiles/` folder
@@ -130,16 +132,14 @@ vendor/java/jdk-21.0.13+9-jre/bin/java -Xmx256M -cp vendor/brouter/brouter-1.7.1
 Then run these in another terminal:
 
 ```bash
-node --test src/stops.test.ts src/gpx.test.ts
-```
-
-```bash
 node --max-old-space-size=4096 src/run-test.ts
 ```
 
 ```bash
 node --max-old-space-size=4096 src/audit.ts
 ```
+
+Route code and its tests live in `../packages/routing`. Run the tests from the repository root with `npm test`.
 
 Results are written to `output/`. Open `output/viewer.html` to see the routes on a map.
 

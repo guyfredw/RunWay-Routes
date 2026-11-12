@@ -1,2 +1,6 @@
 # Separate earlier product idea, not part of this project
 project-brief.md
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo

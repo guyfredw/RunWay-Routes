@@ -1,0 +1,25 @@
+:root {
+  --bg: #ffffff;
+  --text: #1a1a1a;
+  --muted: #5c5c5c;
+  --accent: #0b6bcb;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121417;
+    --text: #e8e8e8;
+    --muted: #a3a3a3;
+    --accent: #5aa9f0;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font: 16px/1.5 system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+main { max-width: 40rem; margin: 0 auto; padding: 2rem 1rem; }
+h1 { margin: 0 0 0.5rem; }
+p { color: var(--muted); }
+a { color: var(--accent); }

@@ -2,7 +2,8 @@
 import { StopMap, distM, overlapShare, routeLength } from './stops.ts';
 import type { Analysis, Coord } from './stops.ts';
 
-const BROUTER = 'http://localhost:17777/brouter';
+// Where BRouter runs. The website sets BROUTER_URL; the prototype uses the local default.
+const BROUTER = (typeof process !== 'undefined' && process.env.BROUTER_URL) || 'http://localhost:17777/brouter';
 const CONCURRENCY = 2;
 const BEARINGS = 12;
 export const TOLERANCE = 0.05;

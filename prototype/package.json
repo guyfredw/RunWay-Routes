@@ -1,0 +1,6 @@
+{
+  "name": "runway-prototype",
+  "private": true,
+  "description": "Command-line routing prototype and field-test tools",
+  "type": "module"
+}

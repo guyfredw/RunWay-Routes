@@ -1,9 +1,9 @@
 // Stricter checks on the test: fairer comparison, and what the routes run along.
 import { readFileSync } from 'node:fs';
-import { StopMap } from './stops.ts';
-import type { Coord, OsmElement } from './stops.ts';
-import { candidates, pickFewestStops, usable } from './generate.ts';
-import type { CourseType, Request } from './generate.ts';
+import { StopMap } from '../../packages/routing/src/stops.ts';
+import type { Coord, OsmElement } from '../../packages/routing/src/stops.ts';
+import { candidates, pickFewestStops, usable } from '../../packages/routing/src/generate.ts';
+import type { CourseType, Request } from '../../packages/routing/src/generate.ts';
 
 const STARTS = [
   { name: 'Downtown', lat: 25.8207222, lon: -80.3340548 },
