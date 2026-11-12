@@ -31,6 +31,15 @@ A free website that generates a running route from a starting point and a set of
 5. The runner reviews the map, elevation profile, stats and likely stops.
 6. The runner either generates another route or downloads the GPX file.
 
+## How runners use routes
+A route is a guide, not a contract. Runners often follow a training plan, such as Runna, that sets an exact distance or workout. They may run part of a route, all of it, or extend it. In field test 3, the runner followed the full 5 km route, then kept going to finish the plan's distance.
+
+Design principles:
+- **Exact distances:** accept any distance, in kilometers or miles, such as 3.25 miles.
+- **Flexible finish:** running past the end, or turning back early, is normal use, not a failure.
+- **Starting anywhere on a loop:** a loop can start at any point on it, so don't present the start as fixed.
+- **Field test comparisons:** compare runs with a route only on the stretch they share, so extra or skipped distance doesn't count as going off course.
+
 ## Route preferences
 | Preference | Options | Rule |
 |---|---|---|
@@ -42,12 +51,11 @@ A free website that generates a running route from a starting point and a set of
 | Busy roads | Avoid (on or off) | Best effort, depending on map data |
 
 ### What counts as a likely stop
-Crosswalks and intersections are the feature's main measure, so the plan treats them as a weighted estimate:
-- **Highest cost:** traffic signals
-- **Medium cost:** marked crosswalks and crossings of major roads
-- **Low cost:** crossings of minor side streets
+Field tests showed runners usually cross unsignalled crossings without stopping, including marked crosswalks where cars must yield. So the estimate has two parts:
+- **Likely stops:** traffic signals, and unsignalled crossings of 5 or more lanes. Wider roads mean longer waits.
+- **Other crossings:** all other crosswalks and side streets. These are shown on the map but weigh much less.
 
-A route's estimate counts each pass, so an out-and-back route counts a crossing twice if the runner passes it in both directions. Exact weights will be tuned during testing.
+Nearby crossings at one intersection, and both halves of a divided road, count as one stop. A route's estimate counts each pass, so an out-and-back route counts a crossing twice if the runner passes it in both directions.
 
 ### When preferences conflict
 Confirmed priority order:
@@ -77,6 +85,7 @@ Each new attempt should produce a noticeably different route. It should avoid re
 - COROS documents turn-by-turn navigation and GPX import. Users report mixed results for prompts on imported routes.
 - Garmin course points generally need a format such as FIT or TCX. Users report that Garmin Connect sometimes adds prompts to imported GPX courses.
 - If GPX prompts prove unreliable, consider adding FIT or TCX downloads later.
+- **COROS results so far:** imported GPX routes show correctly, turn alerts are correct, and a "Turnaround" waypoint on out-and-back routes shows in the app and is announced on the watch.
 
 ## Scope and data
 - **Launch:** worldwide, with local testing in Doral, FL first.
@@ -108,6 +117,10 @@ Test routes in several cities and countries, add data warnings and publish the s
 Add a public demo, README, architecture notes, automated tests, screenshots and an account of how AI was used.
 
 ### Later
+- **Extensions near the finish:** suggest a short add-on, such as a side street or small extra loop, so runners can reach a plan's distance without adding stops.
+- **Shortcuts on loops:** point out where a loop passes close to its start, so runners can cut it short.
+- **Distance markers:** waypoints every kilometer or mile, if COROS handles several waypoints as well as it handles the turnaround.
+- **Workout-shaped routes:** let runners describe a workout, such as "1 km warm-up, then 3 km with no stops, then a cooldown", and place the stretch with fewest stops where the workout needs it.
 - Portable toilets and water fountains along the route
 - Manual route editing
 - Shareable route links
@@ -122,8 +135,8 @@ Add a public demo, README, architecture notes, automated tests, screenshots and 
 - The site works on current phone and desktop browsers.
 
 ## Open questions
-- Do real runs and a COROS import confirm the Doral test? See `prototype/README.md`.
-- Does the proposed stack below still hold after those runs?
+- Three Doral field tests so far support the approach, but they all used 5 km out-and-back routes from one start point. Loops, longer routes, other areas and hilly terrain are untested. See `prototype/README.md`.
+- Does the proposed stack below still hold?
 
 ## Proposed tech stack
 Not final until the field test passes.
@@ -136,4 +149,4 @@ Not final until the field test passes.
 - **Testing and code hosting:** Vitest, Playwright and GitHub
 
 ## Next step
-Complete the field test, then decide on the stack.
+Confirm the tech stack, then plan the first version of the website.

@@ -83,6 +83,16 @@ These stricter rules were added for the local routes, so the 18-route results ab
 
 **Checked against the run:** the route that was run now scores 2 likely stops, both at the NW 97th Ave signal, plus 10 other crossings. That matches the 2 actual crossing stops.
 
+## Turnaround marker
+Out-and-back GPX files now include a waypoint named "Turnaround" at the halfway point, described as "Turn around here (2.50 km)", for example. The map viewer shows it as a black dot.
+
+**Field test 3**, a repeat of the 5 km out-and-back (option 2):
+- **Display:** the COROS app showed the turnaround marker on the route.
+- **Alert:** the watch announced the turnaround as soon as the runner reached it.
+- **Pauses:** near the turnaround, about 8 s stopped and 30 s slowed this time, against about 2 minutes of stops on the previous run, when the runner had to check the watch.
+- **Stops:** the only crossing stops were again at the NW 97th Ave signal, for 14 s out and 38 s back. That matches the 2 predicted likely stops.
+- **Route:** the run stayed close to the planned route, with a median of 8 m away, and was back at the start after 5.06 km by GPS. The runner then ran a little extra.
+
 ## Current routes
 Routes start from the owner's private start point, stored in `data/local-start.json`. That file and the generated routes are excluded from Git by `.gitignore`, so don't share them publicly. Generate them with `src/run-local.ts`, then open `output/local/viewer.html`.
 
@@ -120,7 +130,7 @@ vendor/java/jdk-21.0.13+9-jre/bin/java -Xmx256M -cp vendor/brouter/brouter-1.7.1
 Then run these in another terminal:
 
 ```bash
-node --test src/stops.test.ts
+node --test src/stops.test.ts src/gpx.test.ts
 ```
 
 ```bash

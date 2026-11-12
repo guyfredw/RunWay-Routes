@@ -25,6 +25,7 @@
     <span class="key" style="background:#f2c200;width:8px;height:8px"></span>Crossing, 1&ndash;2 lanes
     <span class="key" style="background:#fff;border:3px solid #111;width:8px;height:8px"></span>Traffic signal
     <span class="key" style="background:#8e44ad;border-radius:2px;height:4px;vertical-align:3px"></span>No sign of a sidewalk
+    <span class="key" style="background:#111;border-radius:2px"></span>Turnaround
   </div>
   <div id="stats"></div>
 </div>
@@ -47,19 +48,23 @@ function show() {
   map.getSource('events').setData({ type: 'FeatureCollection', features: d.runway.events.map((e) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [e.lon, e.lat] }, properties: { color: e.likely ? LIKELY : COLORS[e.wait], radius: e.likely ? 8 : 4, stroke: e.signal ? '#111' : '#fff', width: e.signal ? 3 : 1 } })) });
   map.getSource('nosidewalk').setData({ type: 'FeatureCollection', features: (d.runway.noSidewalk || []).map((c) => line(c)) });
   map.getSource('start').setData({ type: 'Point', coordinates: [d.start.lon, d.start.lat] });
+  const t = d.runway.turnaround;
+  map.getSource('turnaround').setData({ type: 'FeatureCollection', features: t ? [{ type: 'Feature', geometry: { type: 'Point', coordinates: [t.lon, t.lat] }, properties: {} }] : [] });
   document.getElementById('stats').textContent = `RunWay: ${describe(d.runway.stats)}` + (d.baseline ? ` | Comparison: ${describe(d.baseline.stats)}` : '');
   const bounds = d.runway.coords.reduce((b, c) => b.extend(c), new maplibregl.LngLatBounds(d.runway.coords[0], d.runway.coords[0]));
-  map.fitBounds(bounds, { padding: 40, duration: 0 });
+  map.fitBounds(bounds, { padding: 60, duration: 0 });
 }
 map.on('load', () => {
   for (const id of ['baseline', 'runway']) map.addSource(id, { type: 'geojson', data: line([]) });
   map.addSource('events', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('nosidewalk', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addSource('start', { type: 'geojson', data: { type: 'Point', coordinates: [0, 0] } });
+  map.addSource('turnaround', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({ id: 'baseline', type: 'line', source: 'baseline', paint: { 'line-color': '#777', 'line-width': 4, 'line-opacity': 0.7 } });
   map.addLayer({ id: 'runway', type: 'line', source: 'runway', paint: { 'line-color': '#0b6bcb', 'line-width': 4 } });
   map.addLayer({ id: 'nosidewalk', type: 'line', source: 'nosidewalk', paint: { 'line-color': '#8e44ad', 'line-width': 7, 'line-opacity': 0.6, 'line-dasharray': [1, 1] } });
   map.addLayer({ id: 'events', type: 'circle', source: 'events', paint: { 'circle-radius': ['get', 'radius'], 'circle-color': ['get', 'color'], 'circle-stroke-color': ['get', 'stroke'], 'circle-stroke-width': ['get', 'width'] } });
+  map.addLayer({ id: 'turnaround', type: 'circle', source: 'turnaround', paint: { 'circle-radius': 8, 'circle-color': '#111', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
   map.addLayer({ id: 'start', type: 'circle', source: 'start', paint: { 'circle-radius': 8, 'circle-color': '#14833b', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
   show();
 });
