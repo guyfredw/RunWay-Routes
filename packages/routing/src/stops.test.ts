@@ -207,6 +207,19 @@ test('measures private road distance', () => {
   assert.ok(a.privateM > 390);
 });
 
+test('counts service roads near the start and finish separately', () => {
+  // 300 m of parking-lot road, then 1.4 km of footway.
+  const lot = way(1, [[1, at(0)], [2, at(300)]], { highway: 'service' });
+  const trail = way(2, [[2, at(300)], [3, at(1000)], [4, at(1700)]], { highway: 'footway' });
+  const a = new StopMap([lot, trail]).analyze([at(0), at(300), at(1000), at(1700)]);
+  assert.ok(a.serviceM > 290);
+  assert.ok(Math.abs(a.serviceNearEndsM - a.serviceM) < 1);
+  const mid = new StopMap([way(1, [[1, at(0)], [2, at(700)]], { highway: 'footway' }), way(2, [[2, at(700)], [3, at(1000)]], { highway: 'service' }), way(3, [[3, at(1000)], [4, at(1700)]], { highway: 'footway' })])
+    .analyze([at(0), at(700), at(1000), at(1700)]);
+  assert.ok(mid.serviceM > 290);
+  assert.equal(mid.serviceNearEndsM, 0);
+});
+
 test('measures repeated ground', () => {
   assert.ok(Math.abs(retraceShare([at(0), at(200), at(0)]) - 0.5) < 0.01);
 });

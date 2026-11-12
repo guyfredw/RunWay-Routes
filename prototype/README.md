@@ -139,6 +139,12 @@ node --max-old-space-size=4096 src/run-test.ts
 node --max-old-space-size=4096 src/audit.ts
 ```
 
+To see which rule rejects each candidate route, using the stop tiles, run `src/why-rejected.ts` with a start file (or `-` for a public point in Doral), a distance in km and a course type:
+
+```bash
+node src/why-rejected.ts - 5 loop
+```
+
 Route code and its tests live in `../packages/routing`. Run the tests from the repository root with `npm test`.
 
 Results are written to `output/`. Open `output/viewer.html` to see the routes on a map.
