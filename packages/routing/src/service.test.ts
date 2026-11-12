@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_KM, RateLimiter, createRouteHandler, parseRouteInput, planRoute, searchRadiusM } from './service.ts';
+import { MAX_KM, PER_PAGE, RateLimiter, createRouteHandler, parseRouteInput, planRoute, rankRoutes, ruleBreakM, searchRadiusM } from './service.ts';
 import type { RouteResponse, StopArea } from './service.ts';
 import { StopMap, routeLength } from './stops.ts';
-import type { Coord } from './stops.ts';
+import type { Analysis, Coord } from './stops.ts';
+import type { Candidate, Request } from './generate.ts';
 
 const START = { lat: 25.83, lon: -80.38 };
 const emptyArea = (): StopArea => ({ map: new StopMap([]), startCovered: true });
@@ -27,12 +28,12 @@ function fakeBrouter(): () => void {
 
 test('accepts a valid request and rejects bad ones', () => {
   const ok = parseRouteInput({ lat: 25.8, lon: -80.3, distanceKm: 5, type: 'loop' });
-  assert.deepEqual(ok, { ok: true, value: { lat: 25.8, lon: -80.3, distanceKm: 5, type: 'loop', variant: 0 } });
+  assert.deepEqual(ok, { ok: true, value: { lat: 25.8, lon: -80.3, distanceKm: 5, type: 'loop', page: 0 } });
   assert.equal(parseRouteInput({ lat: 95, lon: 0, distanceKm: 5, type: 'loop' }).ok, false);
   assert.equal(parseRouteInput({ lat: '25.8', lon: -80.3, distanceKm: 5, type: 'loop' }).ok, false);
   assert.equal(parseRouteInput({ lat: 25.8, lon: -80.3, distanceKm: MAX_KM + 1, type: 'loop' }).ok, false);
   assert.equal(parseRouteInput({ lat: 25.8, lon: -80.3, distanceKm: 5, type: 'zigzag' }).ok, false);
-  assert.equal(parseRouteInput({ lat: 25.8, lon: -80.3, distanceKm: 5, type: 'loop', variant: 1.5 }).ok, false);
+  assert.equal(parseRouteInput({ lat: 25.8, lon: -80.3, distanceKm: 5, type: 'loop', page: 1.5 }).ok, false);
   assert.equal(parseRouteInput(null).ok, false);
 });
 
@@ -41,32 +42,39 @@ test('loads stop data far enough out for the distance', () => {
   assert.ok(searchRadiusM(42) > 21000);
 });
 
-test('returns an out-and-back route within 5% of the distance, with a turnaround', async () => {
+test('returns three out-and-back routes within 5% of the distance, with turnarounds', async () => {
   const restore = fakeBrouter();
   try {
-    const r = await planRoute({ ...START, distanceKm: 5, type: 'out-and-back', variant: 0 }, emptyArea);
+    const r = await planRoute({ ...START, distanceKm: 5, type: 'out-and-back', page: 0 }, emptyArea);
     assert.equal(r.status, 200);
     const body = r.body as RouteResponse;
-    assert.ok(Math.abs(body.distanceM - 5000) <= 250, `distance ${body.distanceM}`);
-    assert.ok(body.turnaround);
-    assert.ok(body.options >= 2);
-    assert.deepEqual(body.coords[0].slice(0, 2), [START.lon, START.lat]);
-    assert.ok(body.warnings.some((w) => w.includes('No crossings')));
+    assert.equal(body.meetsRules, true);
+    assert.equal(body.options.length, PER_PAGE);
+    for (const o of body.options) {
+      assert.ok(Math.abs(o.distanceM - 5000) <= 250, `distance ${o.distanceM}`);
+      assert.ok(o.turnaround);
+      assert.ok(o.meetsRules);
+      assert.deepEqual(o.coords[0].slice(0, 2), [START.lon, START.lat]);
+    }
+    assert.notDeepEqual(body.options[0].coords, body.options[1].coords);
+    assert.ok(body.options[0].warnings.some((w) => w.includes('No crossings')));
   } finally {
     restore();
   }
 });
 
-test('a redo returns a different route, and variants wrap around', async () => {
+test('more routes come in pages, which wrap around', async () => {
   const restore = fakeBrouter();
   try {
-    const plan = (variant: number) => planRoute({ ...START, distanceKm: 5, type: 'out-and-back', variant }, emptyArea).then((r) => r.body as RouteResponse);
+    const plan = (page: number) => planRoute({ ...START, distanceKm: 5, type: 'out-and-back', page }, emptyArea).then((r) => r.body as RouteResponse);
     const first = await plan(0);
+    assert.ok(first.pages >= 2);
     const second = await plan(1);
-    assert.notDeepEqual(first.coords, second.coords);
-    const wrapped = await plan(first.options);
-    assert.equal(wrapped.variant, 0);
-    assert.deepEqual(wrapped.coords, first.coords);
+    assert.equal(second.page, 1);
+    assert.notDeepEqual(first.options[0].coords, second.options[0].coords);
+    const wrapped = await plan(first.pages);
+    assert.equal(wrapped.page, 0);
+    assert.deepEqual(wrapped.options[0].coords, first.options[0].coords);
   } finally {
     restore();
   }
@@ -75,15 +83,55 @@ test('a redo returns a different route, and variants wrap around', async () => {
 test('returns a loop within 5% of the distance, and warns outside the covered area', async () => {
   const restore = fakeBrouter();
   try {
-    const r = await planRoute({ ...START, distanceKm: 8, type: 'loop', variant: 0 }, () => ({ map: new StopMap([]), startCovered: false }));
+    const r = await planRoute({ ...START, distanceKm: 8, type: 'loop', page: 0 }, () => ({ map: new StopMap([]), startCovered: false }));
     assert.equal(r.status, 200);
-    const body = r.body as RouteResponse;
-    assert.ok(Math.abs(body.distanceM - 8000) <= 400, `distance ${body.distanceM}`);
-    assert.equal(body.turnaround, null);
-    assert.ok(body.warnings[0].includes('outside the area'));
+    const route = (r.body as RouteResponse).options[0];
+    assert.ok(Math.abs(route.distanceM - 8000) <= 400, `distance ${route.distanceM}`);
+    assert.equal(route.turnaround, null);
+    assert.ok(route.warnings[0].includes('outside the area'));
   } finally {
     restore();
   }
+});
+
+// A made-up candidate route: straight north for `length` metres, with the given analysis figures.
+function fake(bearing: number, figures: Partial<Analysis>, lengthM = 32000): Candidate {
+  const coords: Coord[] = Array.from({ length: 50 }, (_, i) => [-80.38 + bearing * 0.01, 25.83 + (i * lengthM) / 49 / 111320]);
+  const analysis = {
+    distanceM: lengthM, gainM: 0, events: [], signals: 0, long: 0, medium: 0, short: 0, total: 0, likelyStops: 0, otherCrossings: 0, weighted: 0,
+    privateM: 0, serviceM: 0, serviceNearEndsM: 0, busyNoSidewalkM: 0, quietNoSidewalkM: 0, sidewalkPenalty: 0, noSidewalk: [], gates: 0, retraceShare: 0, matchedShare: 1,
+    ...figures,
+  } as Analysis;
+  return { coords, bearing, analysis };
+}
+const longRun: Request = { lat: 25.83, lon: -80.38, distanceM: 32000, type: 'out-and-back' };
+
+test('when no route meets every rule, the closest matches come first', () => {
+  const list = [
+    fake(1, { busyNoSidewalkM: 3000 }),
+    fake(2, { busyNoSidewalkM: 1400 }),
+    fake(3, { privateM: 50 }), // never allowed
+    fake(4, { busyNoSidewalkM: 900 }, 29500), // 7.8% short: 900 m busy is 310 m over the limit, plus 900 m of missed distance
+    fake(5, { busyNoSidewalkM: 1400, gates: 1 }), // never allowed
+    fake(6, {}, 27000), // more than 10% short
+  ];
+  const { routes, meetsRules } = rankRoutes(list, longRun);
+  assert.equal(meetsRules, false);
+  assert.deepEqual(routes.map((c) => c.bearing), [2, 4, 1]);
+  assert.ok(Math.abs(ruleBreakM(list[1], longRun) - (1400 - 640)) < 1);
+});
+
+test('closest matches with similar rule-breaking distances are ranked by stops', () => {
+  const manyStops = fake(1, { busyNoSidewalkM: 1410, weighted: 200 });
+  const fewStops = fake(2, { busyNoSidewalkM: 1447, weighted: 90 });
+  const { routes } = rankRoutes([manyStops, fewStops], longRun);
+  assert.deepEqual(routes.map((c) => c.bearing), [2, 1]);
+});
+
+test('routes that meet every rule are shown alone, without closest matches', () => {
+  const { routes, meetsRules } = rankRoutes([fake(1, { busyNoSidewalkM: 1400 }), fake(2, { busyNoSidewalkM: 100 })], longRun);
+  assert.equal(meetsRules, true);
+  assert.deepEqual(routes.map((c) => c.bearing), [2]);
 });
 
 test('the rate limiter allows a set number per window', () => {

@@ -4,6 +4,8 @@ import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { toGpx, turnaroundOf } from '@runway/routing';
 import type { RouteResponse } from '@runway/routing/service';
+
+const PER_PAGE = 3; // matches the route service
 import type { Focus, Point } from './route-map';
 import Elevation from './elevation';
 
@@ -40,7 +42,9 @@ export default function Planner() {
   const [distance, setDistance] = useState('5');
   const [type, setType] = useState<CourseType>('loop');
 
-  const [route, setRoute] = useState<RouteResponse | null>(null);
+  const [result, setResult] = useState<RouteResponse | null>(null);
+  const [selected, setSelected] = useState(0);
+  const route = result?.options[selected] ?? null;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -52,7 +56,7 @@ export default function Planner() {
 
   // Any change to the request clears the old route, so the map never shows a stale one.
   const resetRoute = () => {
-    setRoute(null);
+    setResult(null);
     setError('');
   };
 
@@ -92,24 +96,27 @@ export default function Planner() {
     resetRoute();
   }
 
-  async function generate(variant: number) {
+  async function generate(page: number) {
     if (!start || !distanceOk) return;
     setLoading(true);
     setError('');
     const distanceKm = Math.round((unit === 'km' ? distanceNum : distanceNum * KM_PER_MI) * 1000) / 1000;
-    const r = await post<RouteResponse>('/api/route', { lat: start.lat, lon: start.lon, distanceKm, type, variant });
+    const r = await post<RouteResponse>('/api/route', { lat: start.lat, lon: start.lon, distanceKm, type, page });
     setLoading(false);
     if (!r.ok) {
-      setRoute(null);
+      setResult(null);
       return setError(r.error);
     }
-    setRoute(r.data);
+    setResult(r.data);
+    setSelected(0);
   }
 
+  const routeNumber = (i: number) => (result ? result.page * PER_PAGE + i + 1 : i + 1);
+
   function download() {
-    if (!route) return;
-    const label = `${distance} ${unit} ${type === 'loop' ? 'loop' : 'out-and-back'}`;
-    const gpx = toGpx(`RunWay ${label}`, route.coords, route.type === 'out-and-back' ? [turnaroundOf(route.coords)] : []);
+    if (!route || !result) return;
+    const label = `${distance} ${unit} ${type === 'loop' ? 'loop' : 'out-and-back'}${routeNumber(selected) > 1 ? ` route ${routeNumber(selected)}` : ''}`;
+    const gpx = toGpx(`RunWay ${label}`, route.coords, result.type === 'out-and-back' ? [turnaroundOf(route.coords)] : []);
     const url = URL.createObjectURL(new Blob([gpx], { type: 'application/gpx+xml' }));
     const a = document.createElement('a');
     a.href = url;
@@ -185,8 +192,24 @@ export default function Planner() {
         {loading && <p className="note">This can take up to 10 seconds.</p>}
         {error && <p className="error" role="alert">{error}</p>}
 
-        {route && (
+        {result && route && (
           <div className="results" aria-live="polite">
+            {!result.meetsRules && (
+              <p className="closest" role="status">
+                No route from here meets every rule. These are the closest matches. Each one lists what it misses.
+              </p>
+            )}
+            {result.options.length > 1 && (
+              <div className="tabs" role="tablist" aria-label="Routes">
+                {result.options.map((o, i) => (
+                  <button key={i} type="button" role="tab" aria-selected={i === selected} onClick={() => setSelected(i)}>
+                    <span>Route {routeNumber(i)}</span>
+                    <small>{fmtDist(o.distanceM)}</small>
+                    <small>{o.summary.likelyStops} likely {o.summary.likelyStops === 1 ? 'stop' : 'stops'}</small>
+                  </button>
+                ))}
+              </div>
+            )}
             <dl className="summary">
               <div><dt>Distance</dt><dd data-testid="distance">{fmtDist(route.distanceM)}</dd></div>
               <div><dt>Likely stops</dt><dd data-testid="likely-stops">{route.summary.likelyStops}</dd></div>
@@ -201,12 +224,14 @@ export default function Planner() {
             <Elevation coords={route.coords} unit={unit} />
             <div className="row actions">
               <button className="primary" type="button" onClick={download}>Download GPX</button>
-              <button type="button" disabled={loading || route.options < 2} onClick={() => generate(route.variant + 1)}>
-                Generate another
+              <button type="button" disabled={loading || result.pages < 2} onClick={() => generate(result.page + 1)}>
+                {loading ? 'Loading…' : 'Show more routes'}
               </button>
             </div>
             <p className="note">
-              {route.options < 2 ? 'This is the only route found from this start.' : `Route ${route.variant + 1} of ${route.options}.`}
+              {result.pages < 2
+                ? result.options.length < 2 ? 'This is the only route found from this start.' : 'These are all the different routes found from this start.'
+                : `Set ${result.page + 1} of ${result.pages}.`}
             </p>
             <ul className="legend">
               <li><span className="key key-likely" /> Likely stop: a signal or a road of 5 or more lanes</li>

@@ -2,14 +2,14 @@
 import { useEffect, useRef } from 'react';
 import type { GeoJSONSource, Map as MlMap, Marker } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import type { RouteResponse } from '@runway/routing/service';
+import type { RouteOption } from '@runway/routing/service';
 
 export type Point = { lat: number; lon: number };
 export type Focus = { lat: number; lon: number; bbox?: [south: number, north: number, west: number, east: number] };
 
 type Props = {
   start: Point | null;
-  route: RouteResponse | null;
+  route: RouteOption | null;
   focus: Focus | null;
   onPick: (p: Point, zoom: number) => void;
 };
@@ -33,7 +33,7 @@ export default function RouteMap({ start, route, focus, onPick }: Props) {
   const lib = useRef<typeof import('maplibre-gl') | null>(null);
   const ready = useRef(false);
   const markers = useRef<{ start?: Marker; turn?: Marker }>({});
-  const fitted = useRef<RouteResponse | null>(null);
+  const fitted = useRef<RouteOption | null>(null);
   const latest = useRef({ start, route, onPick });
   latest.current = { start, route, onPick };
 
