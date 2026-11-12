@@ -18,7 +18,7 @@ export function toGpx(name: string, coords: Coord[], waypoints: Waypoint[] = [])
     `<wpt lat="${w.lat.toFixed(6)}" lon="${w.lon.toFixed(6)}"><name>${xml(w.name)}</name>${w.desc ? `<desc>${xml(w.desc)}</desc>` : ''}${w.sym ? `<sym>${xml(w.sym)}</sym>` : ''}</wpt>`).join('\n');
   const points = coords.map(([lon, lat, ele]) => `<trkpt lat="${lat.toFixed(6)}" lon="${lon.toFixed(6)}">${ele !== undefined ? `<ele>${ele.toFixed(1)}</ele>` : ''}</trkpt>`).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="RunWay Routes prototype" xmlns="http://www.topografix.com/GPX/1/1">
+<gpx version="1.1" creator="RunWay Routes" xmlns="http://www.topografix.com/GPX/1/1">
 <metadata><name>${xml(name)}</name></metadata>
 ${wpts ? `${wpts}\n` : ''}<trk><name>${xml(name)}</name><trkseg>
 ${points}
