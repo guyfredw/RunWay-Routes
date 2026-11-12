@@ -108,7 +108,16 @@ export class TileStore {
   }
 
   stopMapAround(lat: number, lon: number, radiusM: number): StopMap {
-    return new StopMap(this.elements(boundsAround(lat, lon, radiusM)).elements);
+    return this.areaAround(lat, lon, radiusM).map;
+  }
+
+  // Stop data around a start point, and whether the start itself has data.
+  // Tiles with no roads are never written, so a missing start tile means the area isn't covered.
+  areaAround(lat: number, lon: number, radiusM: number): { map: StopMap; startCovered: boolean } {
+    return {
+      map: new StopMap(this.elements(boundsAround(lat, lon, radiusM)).elements),
+      startCovered: existsSync(join(this.dir, `${tileKey(lat, lon)}.json.gz`)),
+    };
   }
 }
 

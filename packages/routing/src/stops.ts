@@ -38,6 +38,7 @@ export type Analysis = {
   weighted: number;
   privateM: number;
   serviceM: number;
+  serviceNearEndsM: number; // service road within ENDS_M of the start or finish, such as leaving a parking lot
   busyNoSidewalkM: number;
   quietNoSidewalkM: number;
   sidewalkPenalty: number;
@@ -52,6 +53,7 @@ export const SIGNAL_WEIGHT = 3;
 // Unsignalled crossings narrower than 5 lanes rarely meant a stop in field tests.
 export const CROSSING_WEIGHTS: Record<Wait, number> = { short: 0.5, medium: 1, long: 5 };
 export const LIKELY_STOP_LANES = 5;
+export const ENDS_M = 400; // distance from the start and finish where service roads are expected
 const DEFAULT_LANES: Record<string, number> = { trunk: 4, primary: 4, secondary: 4, tertiary: 2, residential: 2, unclassified: 2, living_street: 1, service: 1 };
 const CLUSTER_M = 35;
 const INTERSECTION_M = 60; // Longest stretch of nearby map points treated as one intersection.
@@ -271,6 +273,8 @@ export class StopMap {
     let gates = 0;
     let privateM = 0;
     let serviceM = 0;
+    let serviceNearEndsM = 0;
+    const total = cum[cum.length - 1] ?? 0;
     let busyNoSidewalkM = 0;
     let quietNoSidewalkM = 0;
     let sidewalkPenalty = 0;
@@ -312,7 +316,10 @@ export class StopMap {
           add(i, this.maxLanes(roadsCrossed) || 1, signalled, 'crosswalk', roadsCrossed);
         }
         if (after.length > 0 && after.every((w) => isPrivate(this.ways[w].tags))) privateM += segLen;
-        if (after.length > 0 && after.every((w) => this.ways[w].tags?.highway === 'service')) serviceM += segLen;
+        if (after.length > 0 && after.every((w) => this.ways[w].tags?.highway === 'service')) {
+          serviceM += segLen;
+          if (cum[i] < ENDS_M || cum[j] > total - ENDS_M) serviceNearEndsM += segLen;
+        }
 
         // Running along a road: is there any sign of a sidewalk here?
         const road = after.find((w) => roadClass(this.ways[w].tags));
@@ -376,6 +383,7 @@ export class StopMap {
       weighted: events.reduce((n, e) => n + e.weight, 0),
       privateM,
       serviceM,
+      serviceNearEndsM,
       busyNoSidewalkM,
       quietNoSidewalkM,
       sidewalkPenalty: sidewalkPenalty / 100,

@@ -18,7 +18,7 @@ export type Request = { lat: number; lon: number; distanceM: number; type: Cours
 
 export async function routeThrough(points: [number, number][], profile: Profile): Promise<Coord[] | null> {
   const lonlats = points.map(([lon, lat]) => `${lon.toFixed(6)},${lat.toFixed(6)}`).join('%7C');
-  const res = await fetch(`${BROUTER}?lonlats=${lonlats}&profile=${profile}&alternativeidx=0&format=geojson`);
+  const res = await fetch(`${BROUTER}?lonlats=${lonlats}&profile=${profile}&alternativeidx=0&format=geojson`, { signal: AbortSignal.timeout(20_000) });
   if (!res.ok) return null;
   const text = await res.text();
   try {
@@ -108,7 +108,8 @@ export const withinTolerance = (c: Candidate, req: Request) => Math.abs(c.analys
 export function usable(c: Candidate, req: Request): boolean {
   if (!withinTolerance(c, req)) return false;
   if (c.analysis.privateM > 0 || c.analysis.gates > 0) return false;
-  if (c.analysis.serviceM / c.analysis.distanceM > MAX_SERVICE_SHARE) return false;
+  // Leaving a parking lot or driveway near the start or finish doesn't count against the route.
+  if ((c.analysis.serviceM - c.analysis.serviceNearEndsM) / c.analysis.distanceM > MAX_SERVICE_SHARE) return false;
   if (c.analysis.busyNoSidewalkM / c.analysis.distanceM > MAX_BUSY_SHARE) return false;
   return req.type !== 'loop' || c.analysis.retraceShare <= MAX_LOOP_RETRACE;
 }
