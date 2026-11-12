@@ -4,14 +4,15 @@
   "description": "RunWay Routes: running routes with fewer stops",
   "workspaces": [
     "packages/*",
+    "pipeline",
     "web"
   ],
   "engines": {
     "node": ">=24"
   },
   "scripts": {
-    "test": "npm run test -w @runway/routing",
-    "typecheck": "npm run typecheck -w @runway/routing && npm run typecheck -w @runway/web",
+    "test": "npm run test -w @runway/routing && npm run test -w @runway/pipeline",
+    "typecheck": "npm run typecheck -w @runway/routing && npm run typecheck -w @runway/pipeline && npm run typecheck -w @runway/web",
     "build": "npm run build -w @runway/web",
     "dev": "npm run dev -w @runway/web"
   },

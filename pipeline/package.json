@@ -1,0 +1,17 @@
+{
+  "name": "@runway/pipeline",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Prepares stop-data tiles from OpenStreetMap extracts",
+  "type": "module",
+  "scripts": {
+    "test": "node --test src/osm-pbf.test.ts",
+    "typecheck": "tsc --noEmit -p .",
+    "build:florida": "node --max-old-space-size=16000 src/build-stop-tiles.ts ../data/osm/us-florida-latest.osm.pbf ../data/stop-tiles/florida",
+    "build:launch": "node src/build-regions.ts regions/launch.txt ../data/osm ../data/stop-tiles/launch"
+  },
+  "dependencies": {
+    "@runway/routing": "*",
+    "pbf": "5.1.2"
+  }
+}

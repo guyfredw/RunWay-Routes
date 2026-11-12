@@ -5,9 +5,13 @@ import type { Coord, OsmElement } from '../../packages/routing/src/stops.ts';
 import { candidates, pickDifferent, pickFewestStops, pickIgnoringStops, usable } from '../../packages/routing/src/generate.ts';
 import type { Candidate, CourseType, Request } from '../../packages/routing/src/generate.ts';
 import { toGpx, turnaroundOf } from '../../packages/routing/src/gpx.ts';
+import { TileStore } from '../../packages/routing/src/tiles.ts';
 
 const start = JSON.parse(readFileSync('data/local-start.json', 'utf8')) as { lat: number; lon: number };
-const map = new StopMap(JSON.parse(readFileSync('data/doral-osm.json', 'utf8')).elements as OsmElement[]);
+// Stop data: tiles when STOP_TILES names a tile folder, otherwise the one-off Overpass download.
+const tiles = process.env.STOP_TILES ? new TileStore(process.env.STOP_TILES) : null;
+const overpassMap = tiles ? null : new StopMap(JSON.parse(readFileSync('data/doral-osm.json', 'utf8')).elements as OsmElement[]);
+const mapFor = (distanceM: number) => overpassMap ?? tiles!.stopMapAround(start.lat, start.lon, distanceM / 2 + 1000);
 const SEEDS = [0, 10, 20];
 
 const stats = (c: Candidate) => ({
@@ -25,6 +29,7 @@ const viewer: any[] = [];
 const rows: any[] = [];
 for (const km of [5, 10, 16]) for (const type of ['out-and-back', 'loop'] as CourseType[]) {
   const req: Request = { lat: start.lat, lon: start.lon, distanceM: km * 1000, type };
+  const map = mapFor(req.distanceM);
   const all: Candidate[] = [];
   const base: Candidate[] = [];
   for (const seed of SEEDS) {
