@@ -4,6 +4,7 @@ import { StopMap, overlapShare } from './stops.ts';
 import type { Coord, OsmElement } from './stops.ts';
 import { candidates, pickDifferent, pickFewestStops, pickIgnoringStops, withinTolerance } from './generate.ts';
 import type { Candidate, CourseType, Request } from './generate.ts';
+import { toGpx, turnaroundOf } from './gpx.ts';
 
 const STARTS = [
   { name: 'Downtown Doral Park', lat: 25.8207222, lon: -80.3340548 },
@@ -14,12 +15,7 @@ const DISTANCES_KM = [5, 10, 16];
 const TYPES: CourseType[] = ['out-and-back', 'loop'];
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-const xml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
-function toGpx(name: string, coords: Coord[]): string {
-  const points = coords.map(([lon, lat, ele]) => `<trkpt lat="${lat.toFixed(6)}" lon="${lon.toFixed(6)}">${ele !== undefined ? `<ele>${ele.toFixed(1)}</ele>` : ''}</trkpt>`).join('\n');
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="RunWay Routes prototype" xmlns="http://www.topografix.com/GPX/1/1">\n<metadata><name>${xml(name)}</name></metadata>\n<trk><name>${xml(name)}</name><trkseg>\n${points}\n</trkseg></trk>\n</gpx>\n`;
-}
 
 const summary = (c: Candidate | null) => c && {
   km: +(c.analysis.distanceM / 1000).toFixed(2),
@@ -77,10 +73,10 @@ async function main() {
     console.log(`${label}: ${seconds.toFixed(1)}s, stops ${row.runway?.total ?? '-'} vs ${row.baseline?.total ?? '-'}, weighted ${row.runway?.weighted ?? '-'} vs ${row.baseline?.weighted ?? '-'} (${row.weightedReductionPct ?? '-'}%)`);
 
     if (chosen) {
-      writeFileSync(`output/gpx/${slug(label)}.gpx`, toGpx(`RunWay ${km}km ${type}`, chosen.coords));
+      writeFileSync(`output/gpx/${slug(label)}.gpx`, toGpx(`RunWay ${km}km ${type}`, chosen.coords, type === 'out-and-back' ? [turnaroundOf(chosen.coords)] : []));
       viewer.push({
         label, start,
-        runway: { coords: chosen.coords.map((c) => [c[0], c[1]]), events: chosen.analysis.events, noSidewalk: chosen.analysis.noSidewalk, stats: row.runway },
+        runway: { coords: chosen.coords.map((c) => [c[0], c[1]]), events: chosen.analysis.events, noSidewalk: chosen.analysis.noSidewalk, turnaround: type === 'out-and-back' ? turnaroundOf(chosen.coords) : null, stats: row.runway },
         baseline: base && { coords: base.coords.map((c) => [c[0], c[1]]), stats: row.baseline },
       });
     }

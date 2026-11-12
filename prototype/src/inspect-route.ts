@@ -5,7 +5,7 @@ import type { Coord } from './stops.ts';
 const map = new StopMap(JSON.parse(readFileSync('data/doral-osm.json', 'utf8')).elements);
 for (const file of process.argv.slice(2)) {
   const gpx = readFileSync(file, 'utf8');
-  const coords: Coord[] = [...gpx.matchAll(/lat="([\d.-]+)" lon="([\d.-]+)"/g)].map((m) => [+m[2], +m[1]]);
+  const coords: Coord[] = [...gpx.matchAll(/<trkpt lat="([\d.-]+)" lon="([\d.-]+)"/g)].map((m) => [+m[2], +m[1]]);
   const half = file.includes('out-and-back') ? coords.slice(0, Math.ceil(coords.length / 2)) : coords;
   console.log(`\n${file}`);
   let prev: number | null = null;
