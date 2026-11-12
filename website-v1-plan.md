@@ -26,11 +26,17 @@ A public website where a runner picks a starting point and distance, gets a rout
 - **Download:** a GPX file with the turnaround waypoint, plus short import steps for COROS and Garmin
 - **Safety note:** routes are estimates from map data, and runners must follow traffic rules
 
+### Added after testing
+- **3 options at once, and closest matches:** a 20-mile out-and-back from Doral found no route that met every rule. Each request now returns up to 3 routes as tabs. When none meets every rule, the closest matches come back with a warning for each rule they miss.
+- **Draw your own:** runners click points on the map, and the route follows roads and paths between them. It ends as drawn, goes back to the start, or comes back the same way. The same stop estimate, warnings, elevation and GPX download apply, so runners can check routes they already run.
+
 ### Not in version 1
 - **Elevation choice (Flat, Rolling, Hilly):** Doral is too flat to test it. Version 1 shows elevation but doesn't let runners choose it.
 - **Surface choice and a busy-roads switch:** routes always avoid busy roads with no sidewalk.
 - **Accounts, saved routes and shareable links**
 - **Ideas from the product plan for later:** extensions, shortcuts, distance markers and workout-shaped routes
+- **Point to point:** a fewest-stops route from a start to a chosen end first, then point to point at a set distance. Drawing mode covers simple point-to-point routes in the meantime.
+- **Dragging drawn points and freehand drawing:** drawn routes snap to roads and paths, and points can only be undone, not moved.
 
 ## How it fits together
 1. **Browser:** a Next.js page with a MapLibre map. It sends the start point and options to the site's own server, and builds the GPX file itself, so routes are never stored.

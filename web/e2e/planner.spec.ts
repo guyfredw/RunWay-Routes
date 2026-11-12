@@ -126,3 +126,55 @@ test('a route the service cannot make shows its explanation', async ({ page }) =
   await expect(page.getByRole('alert').filter({ hasText: 'No route' })).toHaveText('No route near this start point meets the rules.');
   await expect(page.getByRole('button', { name: 'Download GPX' })).toHaveCount(0);
 });
+
+test('draw a route by clicking, change how it ends, undo and download', async ({ page }) => {
+  const draws: { points: number[][]; shape: string }[] = [];
+  await page.route('**/api/draw', async (r) => {
+    const body = r.request().postDataJSON();
+    draws.push(body);
+    const option = fakeOption(1);
+    await r.fulfill({ json: { ...option, distanceM: 1000 * body.points.length, turnaround: body.shape === 'out-and-back' ? option.turnaround : null } });
+  });
+  await setUp(page);
+  await findAndSetStart(page); // sets a generate-mode start, which drawing should leave alone
+  await page.getByRole('radio', { name: 'Draw your own' }).click();
+  await expect(page.getByText('Click or tap the map to add your start')).toBeVisible();
+
+  const map = page.getByTestId('map');
+  const box = (await map.boundingBox())!;
+  await map.click({ position: { x: box.width * 0.4, y: box.height * 0.4 } });
+  await expect(page.getByText('Start set. Add the next point.')).toBeVisible();
+  await map.click({ position: { x: box.width * 0.6, y: box.height * 0.6 } });
+  await expect(page.getByTestId('distance')).toHaveText('2.00 km');
+  expect(draws.at(-1)).toMatchObject({ shape: 'as-drawn' });
+  expect(draws.at(-1)!.points).toHaveLength(2);
+
+  await map.click({ position: { x: box.width * 0.6, y: box.height * 0.3 } });
+  await expect(page.getByTestId('distance')).toHaveText('3.00 km');
+  await page.getByRole('radio', { name: 'Out and back' }).click();
+  await expect.poll(() => draws.at(-1)?.shape).toBe('out-and-back');
+  await expect(page.getByText('Turnaround, also in the GPX file')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Undo point' }).click();
+  await expect(page.getByTestId('distance')).toHaveText('2.00 km');
+
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download GPX' }).click()]);
+  expect(download.suggestedFilename()).toBe('runway-drawn-2-km.gpx');
+
+  await page.getByRole('button', { name: 'Clear' }).click();
+  await expect(page.getByTestId('distance')).toHaveCount(0);
+  await page.getByRole('radio', { name: 'Generate a route' }).click();
+  await expect(page.getByText('Start set.')).toBeVisible();
+});
+
+test('a drawn route that cannot be joined shows why', async ({ page }) => {
+  await page.route('**/api/draw', (r) => r.fulfill({ status: 422, json: { error: 'These points could not be joined along roads or paths.' } }));
+  await setUp(page);
+  await findAndSetStart(page);
+  await page.getByRole('radio', { name: 'Draw your own' }).click();
+  const map = page.getByTestId('map');
+  const box = (await map.boundingBox())!;
+  await map.click({ position: { x: box.width * 0.4, y: box.height * 0.4 } });
+  await map.click({ position: { x: box.width * 0.6, y: box.height * 0.6 } });
+  await expect(page.getByRole('alert').filter({ hasText: 'could not be joined' })).toBeVisible();
+});
