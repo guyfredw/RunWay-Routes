@@ -1,7 +1,7 @@
 // Lists the map ways a GPX route follows, for manual review.
 import { readFileSync } from 'node:fs';
-import { StopMap } from './stops.ts';
-import type { Coord } from './stops.ts';
+import { StopMap } from '../../packages/routing/src/stops.ts';
+import type { Coord } from '../../packages/routing/src/stops.ts';
 const map = new StopMap(JSON.parse(readFileSync('data/doral-osm.json', 'utf8')).elements);
 for (const file of process.argv.slice(2)) {
   const gpx = readFileSync(file, 'utf8');

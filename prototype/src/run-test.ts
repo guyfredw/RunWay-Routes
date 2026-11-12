@@ -1,10 +1,10 @@
 // Runs the Doral feasibility test and writes results, GPX files and a map viewer.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { StopMap, overlapShare } from './stops.ts';
-import type { Coord, OsmElement } from './stops.ts';
-import { candidates, pickDifferent, pickFewestStops, pickIgnoringStops, withinTolerance } from './generate.ts';
-import type { Candidate, CourseType, Request } from './generate.ts';
-import { toGpx, turnaroundOf } from './gpx.ts';
+import { StopMap, overlapShare } from '../../packages/routing/src/stops.ts';
+import type { Coord, OsmElement } from '../../packages/routing/src/stops.ts';
+import { candidates, pickDifferent, pickFewestStops, pickIgnoringStops, withinTolerance } from '../../packages/routing/src/generate.ts';
+import type { Candidate, CourseType, Request } from '../../packages/routing/src/generate.ts';
+import { toGpx, turnaroundOf } from '../../packages/routing/src/gpx.ts';
 
 const STARTS = [
   { name: 'Downtown Doral Park', lat: 25.8207222, lon: -80.3340548 },

@@ -1,10 +1,10 @@
 // Generates routes from one private start point in data/local-start.json.
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { StopMap, distM, overlapShare } from './stops.ts';
-import type { Coord, OsmElement } from './stops.ts';
-import { candidates, pickDifferent, pickFewestStops, pickIgnoringStops, usable } from './generate.ts';
-import type { Candidate, CourseType, Request } from './generate.ts';
-import { toGpx, turnaroundOf } from './gpx.ts';
+import { StopMap, distM, overlapShare } from '../../packages/routing/src/stops.ts';
+import type { Coord, OsmElement } from '../../packages/routing/src/stops.ts';
+import { candidates, pickDifferent, pickFewestStops, pickIgnoringStops, usable } from '../../packages/routing/src/generate.ts';
+import type { Candidate, CourseType, Request } from '../../packages/routing/src/generate.ts';
+import { toGpx, turnaroundOf } from '../../packages/routing/src/gpx.ts';
 
 const start = JSON.parse(readFileSync('data/local-start.json', 'utf8')) as { lat: number; lon: number };
 const map = new StopMap(JSON.parse(readFileSync('data/doral-osm.json', 'utf8')).elements as OsmElement[]);

@@ -88,7 +88,7 @@ Each new attempt should produce a noticeably different route. It should avoid re
 - **COROS results so far:** imported GPX routes show correctly, turn alerts are correct, and a "Turnaround" waypoint on out-and-back routes shows in the app and is announced on the watch.
 
 ## Scope and data
-- **Launch:** worldwide, with local testing in Doral, FL first.
+- **Launch:** North America, Europe, Japan, South Korea and Taiwan, decided in [the version 1 plan](website-v1-plan.md), with local testing in Doral, FL first.
 - **Doral checks:** confirm that routes handle gated communities, private roads, canals and major roads correctly.
 - **Data quality:** crossing and signal data varies by area, so counts are estimates and are labelled that way.
 - **Coverage warning:** the site warns when an area appears to have sparse crossing data.
@@ -149,4 +149,4 @@ Not final until the field test passes.
 - **Testing and code hosting:** Vitest, Playwright and GitHub
 
 ## Next step
-Confirm the tech stack, then plan the first version of the website.
+Build version 1 of the website, following [the version 1 plan](website-v1-plan.md). It launches in North America, Europe, Japan, South Korea and Taiwan instead of worldwide.

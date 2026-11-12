@@ -1,0 +1,22 @@
+{
+  "name": "runway-routes",
+  "private": true,
+  "description": "RunWay Routes: running routes with fewer stops",
+  "workspaces": [
+    "packages/*",
+    "web"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "npm run test -w @runway/routing",
+    "typecheck": "npm run typecheck -w @runway/routing && npm run typecheck -w @runway/web",
+    "build": "npm run build -w @runway/web",
+    "dev": "npm run dev -w @runway/web"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "6.0.3"
+  }
+}
