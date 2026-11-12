@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_KM, PER_PAGE, RateLimiter, createRouteHandler, parseRouteInput, planRoute, rankRoutes, ruleBreakM, searchRadiusM } from './service.ts';
-import type { RouteResponse, StopArea } from './service.ts';
+import { MAX_DRAW_POINTS, MAX_KM, PER_PAGE, RateLimiter, createDrawHandler, createRouteHandler, parseDrawInput, parseRouteInput, planDrawn, planRoute, rankRoutes, ruleBreakM, searchRadiusM } from './service.ts';
+import type { RouteOption, RouteResponse, StopArea } from './service.ts';
 import { StopMap, routeLength } from './stops.ts';
 import type { Analysis, Coord } from './stops.ts';
 import type { Candidate, Request } from './generate.ts';
@@ -149,7 +149,7 @@ test('the handler checks input, limits visitors and reports routing failures', a
   try {
     const handle = createRouteHandler({ areaAround: emptyArea, perMinute: 1 });
     const body = JSON.stringify({ ...START, distanceKm: 3, type: 'out-and-back' });
-    assert.equal((await handle('x'.repeat(3000), 'v')).status, 413);
+    assert.equal((await handle('x'.repeat(9000), 'v')).status, 413);
     assert.equal((await handle('not json', 'v')).status, 400);
     assert.equal((await handle(JSON.stringify({ lat: 1 }), 'v')).status, 400);
     assert.equal((await handle(body, 'v')).status, 200);
@@ -181,5 +181,65 @@ test('the handler turns visitors away while it is busy', async () => {
     assert.equal((await first).status, 422);
   } finally {
     globalThis.fetch = real;
+  }
+});
+
+const P1: [number, number] = [25.83, -80.38];
+const P2: [number, number] = [25.84, -80.38]; // about 1.1 km north
+const P3: [number, number] = [25.84, -80.37];
+
+test('checks drawn points', () => {
+  assert.deepEqual(parseDrawInput({ points: [P1, P2] }), { ok: true, value: { points: [P1, P2], shape: 'as-drawn' } });
+  assert.equal(parseDrawInput({ points: [P1] }).ok, false);
+  assert.equal(parseDrawInput({ points: [P1, [95, 0]] }).ok, false);
+  assert.equal(parseDrawInput({ points: [P1, ['25.8', -80.3]] }).ok, false);
+  assert.equal(parseDrawInput({ points: [P1, P2], shape: 'zigzag' }).ok, false);
+  assert.equal(parseDrawInput({ points: Array.from({ length: MAX_DRAW_POINTS + 1 }, () => P1) }).ok, false);
+  assert.equal(parseDrawInput({ points: [P1, [26.5, -80.38]] }).ok, false); // about 75 km across
+});
+
+test('joins drawn points, and can close the loop or come back the same way', async () => {
+  const restore = fakeBrouter();
+  try {
+    const draw = (shape: 'as-drawn' | 'loop' | 'out-and-back') => planDrawn({ points: [P1, P2, P3], shape }, emptyArea).then((r) => ({ status: r.status, route: r.body as RouteOption }));
+    const asDrawn = await draw('as-drawn');
+    assert.equal(asDrawn.status, 200);
+    assert.ok(Math.abs(asDrawn.route.distanceM - 2110) < 60, `distance ${asDrawn.route.distanceM}`);
+    assert.equal(asDrawn.route.turnaround, null);
+    assert.ok(asDrawn.route.meetsRules);
+
+    const loop = await draw('loop');
+    const last = loop.route.coords.at(-1)!;
+    assert.deepEqual([last[1], last[0]], P1);
+    assert.ok(loop.route.distanceM > asDrawn.route.distanceM + 1000);
+
+    const back = await draw('out-and-back');
+    assert.ok(Math.abs(back.route.distanceM - 2 * asDrawn.route.distanceM) < 2);
+    assert.ok(back.route.turnaround);
+  } finally {
+    restore();
+  }
+});
+
+test('a drawn route that cannot be joined explains why', async () => {
+  const real = globalThis.fetch;
+  globalThis.fetch = (async () => new Response('not found', { status: 400 })) as typeof fetch;
+  try {
+    const r = await planDrawn({ points: [P1, P2], shape: 'as-drawn' }, emptyArea);
+    assert.equal(r.status, 422);
+    assert.ok((r.body as { error: string }).error.includes('Move the last point'));
+  } finally {
+    globalThis.fetch = real;
+  }
+});
+
+test('drawing allows many more requests than generating', async () => {
+  const restore = fakeBrouter();
+  try {
+    const handle = createDrawHandler({ areaAround: emptyArea });
+    const body = JSON.stringify({ points: [P1, P2] });
+    for (let i = 0; i < 20; i++) assert.equal((await handle(body, 'v')).status, 200);
+  } finally {
+    restore();
   }
 });

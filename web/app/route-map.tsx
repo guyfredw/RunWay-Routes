@@ -9,7 +9,9 @@ export type Focus = { lat: number; lon: number; bbox?: [south: number, north: nu
 
 type Props = {
   start: Point | null;
+  points: Point[]; // drawn points, shown as small markers
   route: RouteOption | null;
+  fitRoute: boolean; // zoom to each new route; off while drawing, so the map stays put
   focus: Focus | null;
   onPick: (p: Point, zoom: number) => void;
 };
@@ -27,22 +29,22 @@ function dot(className: string, label: string): HTMLDivElement {
   return el;
 }
 
-export default function RouteMap({ start, route, focus, onPick }: Props) {
+export default function RouteMap({ start, points, route, fitRoute, focus, onPick }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const map = useRef<MlMap | null>(null);
   const lib = useRef<typeof import('maplibre-gl') | null>(null);
   const ready = useRef(false);
   const markers = useRef<{ start?: Marker; turn?: Marker }>({});
   const fitted = useRef<RouteOption | null>(null);
-  const latest = useRef({ start, route, onPick });
-  latest.current = { start, route, onPick };
+  const latest = useRef({ start, points, route, fitRoute, onPick });
+  latest.current = { start, points, route, fitRoute, onPick };
 
   // Draws the latest start, route and stops. Safe to call before the map has loaded.
   const sync = () => {
     const m = map.current;
     const ml = lib.current;
     if (!m || !ml || !ready.current) return;
-    const { start: s, route: r } = latest.current;
+    const { start: s, points: pts, route: r, fitRoute: fit } = latest.current;
 
     const routeLine: Feature[] = r ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: r.coords.map((c) => [c[0], c[1]]) } }] : [];
     const gaps: Feature[] = (r?.noSidewalk ?? []).map((line) => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: line } }));
@@ -50,13 +52,15 @@ export default function RouteMap({ start, route, focus, onPick }: Props) {
     (m.getSource('route') as GeoJSONSource).setData(collection(routeLine));
     (m.getSource('gaps') as GeoJSONSource).setData(collection(gaps));
     (m.getSource('stops') as GeoJSONSource).setData(collection(stops));
+    const drawnPoints: Feature[] = pts.slice(1).map((p) => ({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [p.lon, p.lat] } }));
+    (m.getSource('points') as GeoJSONSource).setData(collection(drawnPoints));
 
     markers.current.start?.remove();
     markers.current.start = s ? new ml.Marker({ element: dot('marker-start', 'Start') }).setLngLat([s.lon, s.lat]).addTo(m) : undefined;
     markers.current.turn?.remove();
     markers.current.turn = r?.turnaround ? new ml.Marker({ element: dot('marker-turn', 'Turnaround') }).setLngLat([r.turnaround.lon, r.turnaround.lat]).addTo(m) : undefined;
 
-    if (r && fitted.current !== r) {
+    if (r && fit && fitted.current !== r) {
       fitted.current = r;
       const b = new ml.LngLatBounds();
       for (const c of r.coords) b.extend([c[0], c[1]]);
@@ -82,6 +86,7 @@ export default function RouteMap({ start, route, focus, onPick }: Props) {
         m.addSource('route', { type: 'geojson', data: collection([]) });
         m.addSource('gaps', { type: 'geojson', data: collection([]) });
         m.addSource('stops', { type: 'geojson', data: collection([]) });
+        m.addSource('points', { type: 'geojson', data: collection([]) });
         m.addLayer({ id: 'route-casing', type: 'line', source: 'route', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 8 } });
         m.addLayer({ id: 'route', type: 'line', source: 'route', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#0b6bcb', 'line-width': 5 } });
         m.addLayer({ id: 'gaps', type: 'line', source: 'gaps', layout: { 'line-cap': 'butt' }, paint: { 'line-color': '#8a2be2', 'line-width': 4, 'line-dasharray': [1.5, 1.2] } });
@@ -96,6 +101,7 @@ export default function RouteMap({ start, route, focus, onPick }: Props) {
             'circle-stroke-width': ['case', ['get', 'signal'], 2.5, 1.5],
           },
         });
+        m.addLayer({ id: 'points', type: 'circle', source: 'points', paint: { 'circle-radius': 5, 'circle-color': '#ffffff', 'circle-stroke-color': '#0b6bcb', 'circle-stroke-width': 2.5 } });
         ready.current = true;
         box.current?.setAttribute('data-ready', 'true');
         sync();
@@ -110,7 +116,7 @@ export default function RouteMap({ start, route, focus, onPick }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(sync, [start, route]);
+  useEffect(sync, [start, points, route, fitRoute]);
 
   useEffect(() => {
     const m = map.current;

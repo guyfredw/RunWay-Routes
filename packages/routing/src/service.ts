@@ -1,9 +1,9 @@
 // The route service: checks a request, generates routes near the start, and returns the best few.
 // The website's server calls createRouteHandler; it stores nothing and never logs start points.
-import { MAX_BUSY_SHARE, MAX_LOOP_RETRACE, MAX_SERVICE_SHARE, TOLERANCE, candidates, score, usable } from './generate.ts';
+import { MAX_BUSY_SHARE, MAX_LOOP_RETRACE, MAX_SERVICE_SHARE, TOLERANCE, candidates, routeThrough, score, usable } from './generate.ts';
 import type { Candidate, CourseType, Request } from './generate.ts';
-import { overlapShare } from './stops.ts';
-import type { Coord, StopMap } from './stops.ts';
+import { distM, overlapShare } from './stops.ts';
+import type { Analysis, Coord, StopMap } from './stops.ts';
 import { turnaroundOf } from './gpx.ts';
 
 export const MIN_KM = 1;
@@ -15,7 +15,7 @@ export const RULE_BREAK_STEP_M = 500; // closest matches this close in rule-brea
 const SEEDS = [0, 15];
 const EXTRA_SEEDS = [7.5, 22.5]; // tried only when the first round finds nothing usable
 const EXTRA_ROUND_BEFORE_MS = 5000; // and only if that round was quick enough to stay near 10 seconds
-const MAX_BODY_BYTES = 2000;
+const MAX_BODY_BYTES = 8000; // room for 100 drawn points
 
 export type RouteInput = { lat: number; lon: number; distanceKm: number; type: CourseType; page: number };
 type Parsed = { ok: true; value: RouteInput } | { ok: false; error: string };
@@ -98,38 +98,48 @@ export type RouteResponse = {
 
 const km = (m: number) => `${(m / 1000).toFixed(2)} km`;
 
-export function toOption(c: Candidate, req: Request, missingStartTile: boolean): RouteOption {
-  const a = c.analysis;
-  const d = a.distanceM;
+// Warnings every route gets: missing stop data, and how much has no mapped sidewalk.
+function dataWarnings(a: Analysis, notCovered: boolean): string[] {
+  if (notCovered) return ['This area is outside the area with stop data, so stops and sidewalks are not counted.'];
+  if (a.distanceM >= 3000 && a.total === 0) return ['No crossings were found on this route. Map data here may be missing crossings, so expect more stops than shown.'];
+  return [];
+}
+
+const busyWarning = (a: Analysis) => `Includes about ${Math.round(a.busyNoSidewalkM)} m on busy roads with no mapped sidewalk. Check those sections, shown as purple dashes, before you run.`;
+
+function buildOption(coords: Coord[], a: Analysis, outAndBack: boolean, meetsRules: boolean, warnings: string[]): RouteOption {
   const noSidewalkM = Math.round(a.quietNoSidewalkM + a.busyNoSidewalkM);
-  const meetsRules = usable(c, req);
-  const busyOver = a.busyNoSidewalkM > MAX_BUSY_SHARE * d;
-  const warnings: string[] = [];
-  if (missingStartTile) warnings.push('This start point is outside the area with stop data, so stops and sidewalks are not counted.');
-  else if (d >= 3000 && a.total === 0) warnings.push('No crossings were found on this route. Map data here may be missing crossings, so expect more stops than shown.');
-  if (!meetsRules) {
-    if (Math.abs(d - req.distanceM) > TOLERANCE * req.distanceM) warnings.push(`${km(d)} is the closest distance found to the ${km(req.distanceM)} you asked for.`);
-    if (busyOver) warnings.push(`Includes about ${Math.round(a.busyNoSidewalkM)} m on busy roads with no mapped sidewalk. Check those sections, shown as purple dashes, before you run.`);
-    if (a.serviceM - a.serviceNearEndsM > MAX_SERVICE_SHARE * d) warnings.push(`Uses about ${Math.round(a.serviceM - a.serviceNearEndsM)} m of service roads or driveways, where access may be unclear.`);
-    if (req.type === 'loop' && a.retraceShare > MAX_LOOP_RETRACE) warnings.push(`Repeats about ${Math.round(a.retraceShare * 100)}% of its ground.`);
-  }
-  if (noSidewalkM >= 50 && !busyOver) warnings.push(`About ${noSidewalkM} m of this route has no mapped sidewalk.`);
-  const turn = req.type === 'out-and-back' ? turnaroundOf(c.coords) : null;
+  if (noSidewalkM >= 50 && a.busyNoSidewalkM <= MAX_BUSY_SHARE * a.distanceM) warnings.push(`About ${noSidewalkM} m of this route has no mapped sidewalk.`);
+  const turn = outAndBack ? turnaroundOf(coords) : null;
   return {
-    distanceM: Math.round(d),
+    distanceM: Math.round(a.distanceM),
     gainM: Math.round(a.gainM),
-    coords: c.coords.map(([lon, lat, ele]) => (ele === undefined ? [round(lon, 6), round(lat, 6)] : [round(lon, 6), round(lat, 6), round(ele, 1)])),
+    coords: coords.map(([lon, lat, ele]) => (ele === undefined ? [round(lon, 6), round(lat, 6)] : [round(lon, 6), round(lat, 6), round(ele, 1)])),
     stops: a.events.map((e) => ({ lat: round(e.lat, 6), lon: round(e.lon, 6), likely: e.likely, signal: e.signal, wait: e.wait, road: e.road, distM: Math.round(e.distM) })),
     summary: { likelyStops: a.likelyStops, otherCrossings: a.otherCrossings, signals: a.signals, noSidewalkM, busyNoSidewalkM: Math.round(a.busyNoSidewalkM) },
     noSidewalk: a.noSidewalk.map((line) => line.map(([x, y]) => [round(x, 6), round(y, 6)] as [number, number])),
-    turnaround: turn && { lat: turn.lat, lon: turn.lon, distM: Math.round(d / 2) },
+    turnaround: turn && { lat: turn.lat, lon: turn.lon, distM: Math.round(a.distanceM / 2) },
     meetsRules,
     warnings,
   };
 }
 
+export function toOption(c: Candidate, req: Request, missingStartTile: boolean): RouteOption {
+  const a = c.analysis;
+  const d = a.distanceM;
+  const meetsRules = usable(c, req);
+  const warnings = dataWarnings(a, missingStartTile);
+  if (!meetsRules) {
+    if (Math.abs(d - req.distanceM) > TOLERANCE * req.distanceM) warnings.push(`${km(d)} is the closest distance found to the ${km(req.distanceM)} you asked for.`);
+    if (a.busyNoSidewalkM > MAX_BUSY_SHARE * d) warnings.push(busyWarning(a));
+    if (a.serviceM - a.serviceNearEndsM > MAX_SERVICE_SHARE * d) warnings.push(`Uses about ${Math.round(a.serviceM - a.serviceNearEndsM)} m of service roads or driveways, where access may be unclear.`);
+    if (req.type === 'loop' && a.retraceShare > MAX_LOOP_RETRACE) warnings.push(`Repeats about ${Math.round(a.retraceShare * 100)}% of its ground.`);
+  }
+  return buildOption(c.coords, a, req.type === 'out-and-back', meetsRules, warnings);
+}
+
 export type StopArea = { map: StopMap; startCovered: boolean };
-export type Outcome = { status: number; body: RouteResponse | { error: string }; headers?: Record<string, string> };
+export type Outcome = { status: number; body: RouteResponse | RouteOption | { error: string }; headers?: Record<string, string> };
 
 export async function planRoute(input: RouteInput, areaAround: (lat: number, lon: number, radiusM: number) => StopArea): Promise<Outcome> {
   const req: Request = { lat: input.lat, lon: input.lon, distanceM: input.distanceKm * 1000, type: input.type };
@@ -147,6 +157,60 @@ export async function planRoute(input: RouteInput, areaAround: (lat: number, lon
   const page = input.page % pages;
   const options = routes.slice(page * PER_PAGE, (page + 1) * PER_PAGE).map((c) => toOption(c, req, !startCovered));
   return { status: 200, body: { type: req.type, page, pages, meetsRules, options } };
+}
+
+// Routes runners draw themselves: clicked points joined along roads and paths.
+export const MAX_DRAW_POINTS = 100;
+export const MAX_DRAW_SPAN_KM = 50;
+export type DrawShape = 'as-drawn' | 'loop' | 'out-and-back';
+export type DrawInput = { points: [lat: number, lon: number][]; shape: DrawShape };
+type ParsedDraw = { ok: true; value: DrawInput } | { ok: false; error: string };
+
+export function parseDrawInput(body: unknown): ParsedDraw {
+  if (!body || typeof body !== 'object') return { ok: false, error: 'Send a JSON object.' };
+  const b = body as Record<string, unknown>;
+  const shape = b.shape === undefined ? 'as-drawn' : b.shape;
+  if (shape !== 'as-drawn' && shape !== 'loop' && shape !== 'out-and-back') return { ok: false, error: 'Choose how the route ends.' };
+  if (!Array.isArray(b.points) || b.points.length < 2) return { ok: false, error: 'Add at least two points.' };
+  if (b.points.length > MAX_DRAW_POINTS) return { ok: false, error: `Use no more than ${MAX_DRAW_POINTS} points.` };
+  const points: [number, number][] = [];
+  for (const p of b.points) {
+    if (!Array.isArray(p) || p.length !== 2 || !p.every((v) => typeof v === 'number' && Number.isFinite(v))) return { ok: false, error: 'Each point needs a latitude and longitude.' };
+    const [lat, lon] = p as [number, number];
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return { ok: false, error: 'A point is off the map.' };
+    points.push([lat, lon]);
+  }
+  const lats = points.map((p) => p[0]);
+  const lons = points.map((p) => p[1]);
+  if (distM(Math.min(...lats), Math.min(...lons), Math.max(...lats), Math.max(...lons)) > MAX_DRAW_SPAN_KM * 1000) {
+    return { ok: false, error: `Keep the route within about ${MAX_DRAW_SPAN_KM} km across.` };
+  }
+  return { ok: true, value: { points, shape } };
+}
+
+// Joins the points with the baseline profile, so the route follows the runner's choices,
+// then estimates stops and sidewalks along it. Drawn routes break no rules by design,
+// but they get the same warnings as generated ones.
+export async function planDrawn(input: DrawInput, areaAround: (lat: number, lon: number, radiusM: number) => StopArea): Promise<Outcome> {
+  const via = input.points.map(([lat, lon]) => [lon, lat] as [number, number]);
+  if (input.shape === 'loop') via.push(via[0]);
+  const path = await routeThrough(via, 'runway-baseline');
+  if (!path || path.length < 2) return { status: 422, body: { error: 'These points could not be joined along roads or paths. Move the last point closer to a road or path.' } };
+  const coords = input.shape === 'out-and-back' ? [...path, ...path.slice(0, -1).reverse()] : path;
+  const lats = input.points.map((p) => p[0]);
+  const lons = input.points.map((p) => p[1]);
+  const south = Math.min(...lats), north = Math.max(...lats), west = Math.min(...lons), east = Math.max(...lons);
+  const centerLat = (south + north) / 2;
+  const centerLon = (west + east) / 2;
+  const { map, startCovered } = areaAround(centerLat, centerLon, distM(south, west, north, east) / 2 + 1500);
+  const a = map.analyze(coords);
+  const warnings = dataWarnings(a, !startCovered);
+  if (a.privateM > 0) warnings.push(`Passes about ${Math.round(a.privateM)} m of private road.`);
+  if (a.gates > 0) warnings.push(`Passes ${a.gates === 1 ? 'a gate' : `${a.gates} gates`}.`);
+  const busyOver = a.busyNoSidewalkM > MAX_BUSY_SHARE * a.distanceM;
+  if (busyOver) warnings.push(busyWarning(a));
+  const option = buildOption(coords, a, input.shape === 'out-and-back', a.privateM === 0 && a.gates === 0 && !busyOver, warnings);
+  return { status: 200, body: option };
 }
 
 // Allows each key a set number of actions per time window.
@@ -186,9 +250,20 @@ export type HandlerOptions = {
 
 // Handles one POST body from one visitor. Errors never echo the request back.
 export function createRouteHandler(opts: HandlerOptions) {
-  const minute = new RateLimiter(opts.perMinute ?? 6, 60_000);
-  const hour = new RateLimiter(opts.perHour ?? 60, 3_600_000);
-  const maxBusy = opts.maxBusy ?? 2;
+  return guarded(parseRouteInput, (input) => planRoute(input, opts.areaAround), { perMinute: 6, perHour: 60, maxBusy: 2, ...opts });
+}
+
+// Drawing sends a request after each change, so it allows many more, but each is one BRouter call.
+export function createDrawHandler(opts: HandlerOptions) {
+  return guarded(parseDrawInput, (input) => planDrawn(input, opts.areaAround), { perMinute: 60, perHour: 600, maxBusy: 4, ...opts });
+}
+
+type Limits = { perMinute?: number; perHour?: number; maxBusy?: number };
+
+function guarded<T>(parse: (body: unknown) => { ok: true; value: T } | { ok: false; error: string }, run: (input: T) => Promise<Outcome>, limits: Limits) {
+  const minute = new RateLimiter(limits.perMinute!, 60_000);
+  const hour = new RateLimiter(limits.perHour!, 3_600_000);
+  const maxBusy = limits.maxBusy!;
   let busy = 0;
   return async (bodyText: string, visitor: string): Promise<Outcome> => {
     if (Buffer.byteLength(bodyText) > MAX_BODY_BYTES) return { status: 413, body: { error: 'Request is too large.' } };
@@ -198,7 +273,7 @@ export function createRouteHandler(opts: HandlerOptions) {
     } catch {
       return { status: 400, body: { error: 'Send a JSON object.' } };
     }
-    const parsed = parseRouteInput(body);
+    const parsed = parse(body);
     if (!parsed.ok) return { status: 400, body: { error: parsed.error } };
     if (busy >= maxBusy) return { status: 503, body: { error: 'The route service is busy. Try again in a few seconds.' }, headers: { 'Retry-After': '5' } };
     for (const limiter of [minute, hour]) {
@@ -207,7 +282,7 @@ export function createRouteHandler(opts: HandlerOptions) {
     }
     busy++;
     try {
-      return await planRoute(parsed.value, opts.areaAround);
+      return await run(parsed.value);
     } catch {
       return { status: 502, body: { error: 'The route service could not reach the routing engine. Try again shortly.' } };
     } finally {

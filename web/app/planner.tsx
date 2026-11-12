@@ -1,21 +1,21 @@
 'use client';
 import dynamic from 'next/dynamic';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { toGpx, turnaroundOf } from '@runway/routing';
-import type { RouteResponse } from '@runway/routing/service';
-
-const PER_PAGE = 3; // matches the route service
+import type { DrawShape, RouteOption, RouteResponse } from '@runway/routing/service';
 import type { Focus, Point } from './route-map';
-import Elevation from './elevation';
+import RouteDetails, { KM_PER_MI, downloadGpx, fmtDist } from './route-details';
+import type { Unit } from './route-details';
 
 const RouteMap = dynamic(() => import('./route-map'), { ssr: false, loading: () => <div className="map map-loading">Loading map…</div> });
 
 type Place = { name: string; lat: number; lon: number; bbox: [number, number, number, number] };
-type Unit = 'km' | 'mi';
 type CourseType = 'loop' | 'out-and-back';
+type Mode = 'generate' | 'draw';
 
-const KM_PER_MI = 1.609344;
+const PER_PAGE = 3; // matches the route service
+const MAX_POINTS = 100; // matches the route service
+const DRAW_DELAY_MS = 250; // wait for quick clicks to settle before asking the server
 const MIN_PICK_ZOOM = 12;
 const LIMITS: Record<Unit, [number, number]> = { km: [1, 42], mi: [0.7, 26] };
 
@@ -36,23 +36,31 @@ export default function Planner() {
   const [searchError, setSearchError] = useState('');
   const [focus, setFocus] = useState<Focus | null>(null);
 
-  const [start, setStart] = useState<Point | null>(null);
+  const [mode, setMode] = useState<Mode>('generate');
   const [pickHint, setPickHint] = useState('');
   const [unit, setUnit] = useState<Unit>('km');
+
+  // Generate mode
+  const [start, setStart] = useState<Point | null>(null);
   const [distance, setDistance] = useState('5');
   const [type, setType] = useState<CourseType>('loop');
-
   const [result, setResult] = useState<RouteResponse | null>(null);
   const [selected, setSelected] = useState(0);
-  const route = result?.options[selected] ?? null;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const generated = result?.options[selected] ?? null;
+
+  // Draw mode
+  const [points, setPoints] = useState<Point[]>([]);
+  const [shape, setShape] = useState<DrawShape>('as-drawn');
+  const [drawn, setDrawn] = useState<RouteOption | null>(null);
+  const [drawing, setDrawing] = useState(false);
+  const [drawError, setDrawError] = useState('');
+  const drawRequest = useRef(0);
 
   const [lo, hi] = LIMITS[unit];
   const distanceNum = Number(distance);
   const distanceOk = Number.isFinite(distanceNum) && distanceNum >= lo && distanceNum <= hi;
-  const fmtDist = (m: number) => (unit === 'km' ? `${(m / 1000).toFixed(2)} km` : `${(m / 1000 / KM_PER_MI).toFixed(2)} mi`);
-  const fmtClimb = (m: number) => (unit === 'km' ? `${m} m` : `${Math.round(m * 3.28084)} ft`);
 
   // Any change to the request clears the old route, so the map never shows a stale one.
   const resetRoute = () => {
@@ -80,12 +88,16 @@ export default function Planner() {
 
   function pick(p: Point, zoom: number) {
     if (zoom < MIN_PICK_ZOOM) {
-      setPickHint('Zoom in closer to set an exact start point.');
+      setPickHint(mode === 'draw' ? 'Zoom in closer to add exact points.' : 'Zoom in closer to set an exact start point.');
       return;
     }
     setPickHint('');
-    setStart(p);
-    resetRoute();
+    if (mode === 'generate') {
+      setStart(p);
+      resetRoute();
+    } else if (points.length >= MAX_POINTS) {
+      setPickHint(`A drawn route can have up to ${MAX_POINTS} points.`);
+    } else setPoints([...points, p]);
   }
 
   function changeUnit(next: Unit) {
@@ -111,19 +123,49 @@ export default function Planner() {
     setSelected(0);
   }
 
-  const routeNumber = (i: number) => (result ? result.page * PER_PAGE + i + 1 : i + 1);
+  // Redraws the route shortly after the points or shape change. Older answers are ignored.
+  useEffect(() => {
+    if (points.length < 2) {
+      setDrawn(null);
+      setDrawError('');
+      return;
+    }
+    const id = ++drawRequest.current;
+    const timer = setTimeout(async () => {
+      setDrawing(true);
+      const r = await post<RouteOption>('/api/draw', { points: points.map((p) => [p.lat, p.lon]), shape });
+      if (id !== drawRequest.current) return;
+      setDrawing(false);
+      if (r.ok) {
+        setDrawn(r.data);
+        setDrawError('');
+      } else setDrawError(r.error);
+    }, DRAW_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [points, shape]);
 
-  function download() {
-    if (!route || !result) return;
-    const label = `${distance} ${unit} ${type === 'loop' ? 'loop' : 'out-and-back'}${routeNumber(selected) > 1 ? ` route ${routeNumber(selected)}` : ''}`;
-    const gpx = toGpx(`RunWay ${label}`, route.coords, result.type === 'out-and-back' ? [turnaroundOf(route.coords)] : []);
-    const url = URL.createObjectURL(new Blob([gpx], { type: 'application/gpx+xml' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `runway-${label.replace(/ /g, '-')}.gpx`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const routeNumber = (i: number) => (result ? result.page * PER_PAGE + i + 1 : i + 1);
+  const courseLabel = type === 'loop' ? 'loop' : 'out-and-back';
+
+  function downloadGenerated() {
+    if (!generated) return;
+    const label = `${distance} ${unit} ${courseLabel}${routeNumber(selected) > 1 ? ` route ${routeNumber(selected)}` : ''}`;
+    downloadGpx(generated, `RunWay ${label}`, `runway-${label.replace(/ /g, '-')}.gpx`);
   }
+
+  function downloadDrawn() {
+    if (!drawn) return;
+    const dist = fmtDist(drawn.distanceM, unit).replace(/\.?0+ /, ' ');
+    downloadGpx(drawn, `RunWay drawn ${dist}`, `runway-drawn-${dist.replace(/ /g, '-')}.gpx`);
+  }
+
+  const unitToggle = (
+    <div className="toggle" role="radiogroup" aria-label="Units">
+      {(['km', 'mi'] as Unit[]).map((u) => (
+        <button key={u} type="button" role="radio" aria-checked={unit === u} onClick={() => changeUnit(u)}>{u}</button>
+      ))}
+    </div>
+  );
 
   return (
     <div className="app">
@@ -153,99 +195,129 @@ export default function Planner() {
             </ul>
           )}
         </form>
+
+        <div className="toggle wide modes" role="radiogroup" aria-label="How to plan">
+          {([['generate', 'Generate a route'], ['draw', 'Draw your own']] as [Mode, string][]).map(([m, label]) => (
+            <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => { setMode(m); setPickHint(''); }}>{label}</button>
+          ))}
+        </div>
       </section>
 
       <div className="map-wrap">
-        <RouteMap start={start} route={route} focus={focus} onPick={pick} />
+        <RouteMap
+          start={mode === 'generate' ? start : points[0] ?? null}
+          points={mode === 'draw' ? points : []}
+          route={mode === 'generate' ? generated : drawn}
+          fitRoute={mode === 'generate'}
+          focus={focus}
+          onPick={pick}
+        />
       </div>
 
-      <section className="panel" aria-label="Route options">
-        <div className="step">
-          <p className="label">2. Set the start</p>
-          <p className="note" aria-live="polite">{pickHint || (start ? 'Start set. Click the map again to move it.' : 'Click or tap the map where you want to start.')}</p>
-        </div>
-
-        <fieldset className="step">
-          <legend className="label">3. Choose options</legend>
-          <div className="row">
-            <label className="distance">
-              <span className="sr-only">Distance</span>
-              <input type="number" inputMode="decimal" min={lo} max={hi} step="0.1" value={distance} onChange={(e) => { setDistance(e.target.value); resetRoute(); }} aria-label="Distance" />
-            </label>
-            <div className="toggle" role="radiogroup" aria-label="Units">
-              {(['km', 'mi'] as Unit[]).map((u) => (
-                <button key={u} type="button" role="radio" aria-checked={unit === u} onClick={() => changeUnit(u)}>{u}</button>
-              ))}
+      <section className="panel" aria-label={mode === 'generate' ? 'Route options' : 'Draw your route'}>
+        {mode === 'generate' ? (
+          <>
+            <div className="step">
+              <p className="label">2. Set the start</p>
+              <p className="note" aria-live="polite">{pickHint || (start ? 'Start set. Click the map again to move it.' : 'Click or tap the map where you want to start.')}</p>
             </div>
-          </div>
-          {!distanceOk && <p className="error">Choose a distance from {lo} to {hi} {unit}.</p>}
-          <div className="toggle wide" role="radiogroup" aria-label="Course type">
-            {([['loop', 'Loop'], ['out-and-back', 'Out and back']] as [CourseType, string][]).map(([t, label]) => (
-              <button key={t} type="button" role="radio" aria-checked={type === t} onClick={() => { setType(t); resetRoute(); }}>{label}</button>
-            ))}
-          </div>
-        </fieldset>
 
-        <button className="primary" type="button" disabled={!start || !distanceOk || loading} onClick={() => generate(0)}>
-          {loading ? 'Finding a route…' : 'Generate route'}
-        </button>
-        {loading && <p className="note">This can take up to 10 seconds.</p>}
-        {error && <p className="error" role="alert">{error}</p>}
-
-        {result && route && (
-          <div className="results" aria-live="polite">
-            {!result.meetsRules && (
-              <p className="closest" role="status">
-                No route from here meets every rule. These are the closest matches. Each one lists what it misses.
-              </p>
-            )}
-            {result.options.length > 1 && (
-              <div className="tabs" role="tablist" aria-label="Routes">
-                {result.options.map((o, i) => (
-                  <button key={i} type="button" role="tab" aria-selected={i === selected} onClick={() => setSelected(i)}>
-                    <span>Route {routeNumber(i)}</span>
-                    <small>{fmtDist(o.distanceM)}</small>
-                    <small>{o.summary.likelyStops} likely {o.summary.likelyStops === 1 ? 'stop' : 'stops'}</small>
-                  </button>
+            <fieldset className="step">
+              <legend className="label">3. Choose options</legend>
+              <div className="row">
+                <label className="distance">
+                  <span className="sr-only">Distance</span>
+                  <input type="number" inputMode="decimal" min={lo} max={hi} step="0.1" value={distance} onChange={(e) => { setDistance(e.target.value); resetRoute(); }} aria-label="Distance" />
+                </label>
+                {unitToggle}
+              </div>
+              {!distanceOk && <p className="error">Choose a distance from {lo} to {hi} {unit}.</p>}
+              <div className="toggle wide" role="radiogroup" aria-label="Course type">
+                {([['loop', 'Loop'], ['out-and-back', 'Out and back']] as [CourseType, string][]).map(([t, label]) => (
+                  <button key={t} type="button" role="radio" aria-checked={type === t} onClick={() => { setType(t); resetRoute(); }}>{label}</button>
                 ))}
               </div>
+            </fieldset>
+
+            <button className="primary" type="button" disabled={!start || !distanceOk || loading} onClick={() => generate(0)}>
+              {loading ? 'Finding routes…' : 'Generate route'}
+            </button>
+            {loading && <p className="note">This can take up to 10 seconds.</p>}
+            {error && <p className="error" role="alert">{error}</p>}
+
+            {result && generated && (
+              <div className="results" aria-live="polite">
+                {!result.meetsRules && (
+                  <p className="closest" role="status">
+                    No route from here meets every rule. These are the closest matches. Each one lists what it misses.
+                  </p>
+                )}
+                {result.options.length > 1 && (
+                  <div className="tabs" role="tablist" aria-label="Routes">
+                    {result.options.map((o, i) => (
+                      <button key={i} type="button" role="tab" aria-selected={i === selected} onClick={() => setSelected(i)}>
+                        <span>Route {routeNumber(i)}</span>
+                        <small>{fmtDist(o.distanceM, unit)}</small>
+                        <small>{o.summary.likelyStops} likely {o.summary.likelyStops === 1 ? 'stop' : 'stops'}</small>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <RouteDetails
+                  route={generated}
+                  unit={unit}
+                  actions={
+                    <>
+                      <button className="primary" type="button" onClick={downloadGenerated}>Download GPX</button>
+                      <button type="button" disabled={loading || result.pages < 2} onClick={() => generate(result.page + 1)}>
+                        {loading ? 'Loading…' : 'Show more routes'}
+                      </button>
+                    </>
+                  }
+                  note={
+                    result.pages < 2
+                      ? result.options.length < 2 ? 'This is the only route found from this start.' : 'These are all the different routes found from this start.'
+                      : `Set ${result.page + 1} of ${result.pages}.`
+                  }
+                />
+              </div>
             )}
-            <dl className="summary">
-              <div><dt>Distance</dt><dd data-testid="distance">{fmtDist(route.distanceM)}</dd></div>
-              <div><dt>Likely stops</dt><dd data-testid="likely-stops">{route.summary.likelyStops}</dd></div>
-              <div><dt>Other crossings</dt><dd>{route.summary.otherCrossings}</dd></div>
-              <div><dt>Climb</dt><dd>{fmtClimb(route.gainM)}</dd></div>
-            </dl>
-            {route.warnings.length > 0 && (
-              <ul className="warnings">
-                {route.warnings.map((w) => <li key={w}>{w}</li>)}
-              </ul>
-            )}
-            <Elevation coords={route.coords} unit={unit} />
-            <div className="row actions">
-              <button className="primary" type="button" onClick={download}>Download GPX</button>
-              <button type="button" disabled={loading || result.pages < 2} onClick={() => generate(result.page + 1)}>
-                {loading ? 'Loading…' : 'Show more routes'}
-              </button>
+          </>
+        ) : (
+          <>
+            <div className="step">
+              <p className="label">2. Draw your route</p>
+              <p className="note" aria-live="polite">
+                {pickHint || (points.length === 0 ? 'Click or tap the map to add your start, then keep adding points. The route follows roads and paths between them.' : points.length === 1 ? 'Start set. Add the next point.' : `${points.length} points. Keep clicking to extend the route.`)}
+              </p>
+              <div className="row">
+                <button type="button" disabled={points.length === 0} onClick={() => setPoints(points.slice(0, -1))}>Undo point</button>
+                <button type="button" disabled={points.length === 0} onClick={() => setPoints([])}>Clear</button>
+                {unitToggle}
+              </div>
             </div>
-            <p className="note">
-              {result.pages < 2
-                ? result.options.length < 2 ? 'This is the only route found from this start.' : 'These are all the different routes found from this start.'
-                : `Set ${result.page + 1} of ${result.pages}.`}
-            </p>
-            <ul className="legend">
-              <li><span className="key key-likely" /> Likely stop: a signal or a road of 5 or more lanes</li>
-              <li><span className="key key-other" /> Other crossing, usually quick</li>
-              <li><span className="key key-signal" /> Ringed: traffic signal</li>
-              <li><span className="key key-gap" /> No mapped sidewalk</li>
-              {route.turnaround && <li><span className="key key-turn" /> Turnaround, also in the GPX file</li>}
-            </ul>
-            <details className="howto">
-              <summary>How to put it on your watch</summary>
-              <p><strong>COROS:</strong> in the COROS app, open Routes, choose Import, and pick the GPX file. Then sync the route to your watch.</p>
-              <p><strong>Garmin:</strong> in Garmin Connect on a computer, open Training &amp; Planning, then Courses, choose Import, and select the GPX file. Then send the course to your device.</p>
-            </details>
-          </div>
+
+            <fieldset className="step">
+              <legend className="label">3. Finish</legend>
+              <div className="toggle wide" role="radiogroup" aria-label="How the route ends">
+                {([['as-drawn', 'As drawn'], ['loop', 'Back to start'], ['out-and-back', 'Out and back']] as [DrawShape, string][]).map(([s, label]) => (
+                  <button key={s} type="button" role="radio" aria-checked={shape === s} onClick={() => setShape(s)}>{label}</button>
+                ))}
+              </div>
+              <p className="note">
+                {shape === 'loop' ? 'Routes from your last point back to the start.' : shape === 'out-and-back' ? 'Comes back the same way, with a turnaround marker.' : 'Ends at your last point.'}
+              </p>
+            </fieldset>
+
+            {drawing && <p className="note">Updating the route…</p>}
+            {drawError && <p className="error" role="alert">{drawError}</p>}
+
+            {drawn && points.length >= 2 && (
+              <div className="results" aria-live="polite">
+                <RouteDetails route={drawn} unit={unit} actions={<button className="primary" type="button" onClick={downloadDrawn}>Download GPX</button>} />
+              </div>
+            )}
+          </>
         )}
 
         <footer className="footer">

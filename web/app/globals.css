@@ -94,6 +94,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .summary dd { margin: 0; font-size: 1.25rem; font-weight: 600; }
 .warnings { margin: 0; padding: 8px 10px 8px 28px; background: var(--warn-bg); color: var(--warn-text); border-radius: 8px; font-size: 0.9rem; }
 .actions button { flex: 1; }
+.modes { margin-top: 2px; }
 .closest { margin: 0; padding: 8px 10px; background: var(--warn-bg); color: var(--warn-text); border-radius: 8px; font-size: 0.9rem; font-weight: 600; }
 .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .tabs button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 7px 9px; text-align: left; background: var(--bg); }
