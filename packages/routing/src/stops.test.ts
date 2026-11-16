@@ -220,6 +220,36 @@ test('counts service roads near the start and finish separately', () => {
   assert.equal(mid.serviceNearEndsM, 0);
 });
 
+test('measures distance on trails, but not on sidewalks', () => {
+  const trail = way(1, [[1, at(0)], [2, at(500)]], { highway: 'cycleway', name: 'Canal Trail' });
+  const sidewalk = way(2, [[2, at(500)], [3, at(900)]], { highway: 'footway', footway: 'sidewalk' });
+  const a = new StopMap([trail, sidewalk]).analyze([at(0), at(500), at(900)]);
+  assert.ok(Math.abs(a.trailM - 500) < 5, `trail ${a.trailM}`);
+});
+
+test('lists trails near a point, joining pieces with the same name', () => {
+  const map = new StopMap([
+    way(1, [[1, at(0)], [2, at(500)]], { highway: 'cycleway', name: 'Canal Trail' }),
+    way(2, [[2, at(500)], [3, at(1000)]], { highway: 'cycleway', name: 'Canal Trail' }),
+    way(3, [[4, east(300)], [5, offsetEast(300, 300)]], { highway: 'path' }), // short and unnamed
+    way(4, [[6, east(200)], [7, offsetEast(900, 200)]], { highway: 'footway', footway: 'sidewalk', name: 'Main St' }),
+  ]);
+  const trails = map.trails(25.8, LON, 2000);
+  assert.deepEqual(trails.map((t) => t.name), ['Canal Trail']);
+  assert.ok(Math.abs(trails[0].lengthM - 1000) < 10);
+});
+
+test('service roads marked public or joining a trail have clear access', () => {
+  const lot = way(1, [[1, at(0)], [2, at(500)]], { highway: 'residential' });
+  const service = (tags: Record<string, string>) => way(2, [[2, at(500)], [3, at(1000)]], { highway: 'service', ...tags });
+  const onward = way(3, [[3, at(1000)], [4, at(2000)]], { highway: 'residential' });
+  const route: Coord[] = [at(0), at(500), at(1000), at(2000)];
+  assert.ok(new StopMap([lot, service({}), onward]).analyze(route).serviceUncertainM > 490);
+  assert.equal(new StopMap([lot, service({ access: 'yes' }), onward]).analyze(route).serviceUncertainM, 0);
+  const trail = way(5, [[3, at(1000)], [9, east(400)]], { highway: 'cycleway', name: 'Canal Trail' });
+  assert.equal(new StopMap([lot, service({}), onward, trail]).analyze(route).serviceUncertainM, 0);
+});
+
 test('measures repeated ground', () => {
   assert.ok(Math.abs(retraceShare([at(0), at(200), at(0)]) - 0.5) < 0.01);
 });

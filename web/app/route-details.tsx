@@ -18,6 +18,9 @@ export default function RouteDetails({ route, unit, actions, note }: { route: Ro
         <div><dt>Other crossings</dt><dd>{route.summary.otherCrossings}</dd></div>
         <div><dt>Climb</dt><dd>{fmtClimb(route.gainM, unit)}</dd></div>
       </dl>
+      {route.summary.trailM >= 100 && (
+        <p className="trail-note" data-testid="trail">{fmtDist(route.summary.trailM, unit)} on trails and paths away from traffic</p>
+      )}
       {route.warnings.length > 0 && (
         <ul className="warnings">
           {route.warnings.map((w) => <li key={w}>{w}</li>)}

@@ -1,6 +1,6 @@
 // The route service: checks a request, generates routes near the start, and returns the best few.
 // The website's server calls createRouteHandler; it stores nothing and never logs start points.
-import { MAX_BUSY_SHARE, MAX_LOOP_RETRACE, MAX_SERVICE_SHARE, TOLERANCE, candidates, routeThrough, score, usable } from './generate.ts';
+import { MAX_BUSY_SHARE, MAX_LOOP_RETRACE, MAX_SERVICE_SHARE, TOLERANCE, candidates, routeThrough, score, trailCandidates, usable } from './generate.ts';
 import type { Candidate, CourseType, Request } from './generate.ts';
 import { distM, overlapShare } from './stops.ts';
 import type { Analysis, Coord, StopMap } from './stops.ts';
@@ -11,6 +11,7 @@ export const MAX_KM = 42;
 export const PER_PAGE = 3; // routes shown together
 export const MAX_PAGES = 3; // "Show more routes" steps through these, then starts again
 export const CLOSEST_TOLERANCE = 0.1; // closest matches may miss the distance by up to 10%
+export const TRAIL_PICK_SHARE = 0.15; // a "trail route" has at least this share, and at least 1 km, on trails
 export const RULE_BREAK_STEP_M = 500; // closest matches this close in rule-breaking metres are ranked by stops instead
 const SEEDS = [0, 15];
 const EXTRA_SEEDS = [7.5, 22.5]; // tried only when the first round finds nothing usable
@@ -55,7 +56,7 @@ export function ruleBreakM(c: Candidate, req: Request): number {
   const a = c.analysis;
   const d = a.distanceM;
   const busy = Math.max(0, a.busyNoSidewalkM - MAX_BUSY_SHARE * d);
-  const service = Math.max(0, a.serviceM - a.serviceNearEndsM - MAX_SERVICE_SHARE * d);
+  const service = Math.max(0, a.serviceUncertainM - MAX_SERVICE_SHARE * d);
   const retrace = req.type === 'loop' ? Math.max(0, a.retraceShare - MAX_LOOP_RETRACE) * d : 0;
   const distance = Math.max(0, Math.abs(d - req.distanceM) - TOLERANCE * req.distanceM);
   return busy + service + retrace + distance;
@@ -68,10 +69,23 @@ export const closeEnough = (c: Candidate, req: Request) =>
 export function rankRoutes(all: Candidate[], req: Request): { routes: Candidate[]; meetsRules: boolean } {
   const byScore = (a: Candidate, b: Candidate) => score(a, req) - score(b, req);
   const strict = distinct(all.filter((c) => usable(c, req)).sort(byScore), PER_PAGE * MAX_PAGES);
-  if (strict.length) return { routes: strict, meetsRules: true };
+  if (strict.length) return { routes: withTrailPick(strict, all.filter((c) => usable(c, req)).sort(byScore), req), meetsRules: true };
   const step = (c: Candidate) => Math.ceil(ruleBreakM(c, req) / RULE_BREAK_STEP_M);
   const closest = all.filter((c) => closeEnough(c, req)).sort((a, b) => step(a) - step(b) || byScore(a, b));
   return { routes: distinct(closest, PER_PAGE * MAX_PAGES), meetsRules: false };
+}
+
+export const isTrailRoute = (c: Candidate, req: Request) => c.analysis.trailM >= Math.max(1000, TRAIL_PICK_SHARE * req.distanceM);
+
+// Stops come first, so the best trail route can rank below the first few. When none of the first
+// page is a trail route, the best one that meets every rule takes the last place on that page.
+export function withTrailPick(routes: Candidate[], ranked: Candidate[], req: Request): Candidate[] {
+  const page = routes.slice(0, PER_PAGE);
+  if (page.some((c) => isTrailRoute(c, req))) return routes;
+  const keep = page.slice(0, PER_PAGE - 1);
+  const pick = ranked.find((c) => isTrailRoute(c, req) && keep.every((p) => overlapShare(c.coords, p.coords) <= 0.5));
+  if (!pick) return routes;
+  return [...keep, pick, ...routes.filter((c) => !keep.includes(c) && c !== pick)].slice(0, PER_PAGE * MAX_PAGES);
 }
 
 const round = (v: number, places: number) => Math.round(v * 10 ** places) / 10 ** places;
@@ -81,7 +95,7 @@ export type RouteOption = {
   gainM: number;
   coords: Coord[];
   stops: { lat: number; lon: number; likely: boolean; signal: boolean; wait: string; road?: string; distM: number }[];
-  summary: { likelyStops: number; otherCrossings: number; signals: number; noSidewalkM: number; busyNoSidewalkM: number };
+  summary: { likelyStops: number; otherCrossings: number; signals: number; noSidewalkM: number; busyNoSidewalkM: number; trailM: number };
   noSidewalk: [number, number][][];
   turnaround: { lat: number; lon: number; distM: number } | null;
   meetsRules: boolean;
@@ -116,7 +130,7 @@ function buildOption(coords: Coord[], a: Analysis, outAndBack: boolean, meetsRul
     gainM: Math.round(a.gainM),
     coords: coords.map(([lon, lat, ele]) => (ele === undefined ? [round(lon, 6), round(lat, 6)] : [round(lon, 6), round(lat, 6), round(ele, 1)])),
     stops: a.events.map((e) => ({ lat: round(e.lat, 6), lon: round(e.lon, 6), likely: e.likely, signal: e.signal, wait: e.wait, road: e.road, distM: Math.round(e.distM) })),
-    summary: { likelyStops: a.likelyStops, otherCrossings: a.otherCrossings, signals: a.signals, noSidewalkM, busyNoSidewalkM: Math.round(a.busyNoSidewalkM) },
+    summary: { likelyStops: a.likelyStops, otherCrossings: a.otherCrossings, signals: a.signals, noSidewalkM, busyNoSidewalkM: Math.round(a.busyNoSidewalkM), trailM: Math.round(a.trailM) },
     noSidewalk: a.noSidewalk.map((line) => line.map(([x, y]) => [round(x, 6), round(y, 6)] as [number, number])),
     turnaround: turn && { lat: turn.lat, lon: turn.lon, distM: Math.round(a.distanceM / 2) },
     meetsRules,
@@ -132,7 +146,7 @@ export function toOption(c: Candidate, req: Request, missingStartTile: boolean):
   if (!meetsRules) {
     if (Math.abs(d - req.distanceM) > TOLERANCE * req.distanceM) warnings.push(`${km(d)} is the closest distance found to the ${km(req.distanceM)} you asked for.`);
     if (a.busyNoSidewalkM > MAX_BUSY_SHARE * d) warnings.push(busyWarning(a));
-    if (a.serviceM - a.serviceNearEndsM > MAX_SERVICE_SHARE * d) warnings.push(`Uses about ${Math.round(a.serviceM - a.serviceNearEndsM)} m of service roads or driveways, where access may be unclear.`);
+    if (a.serviceUncertainM > MAX_SERVICE_SHARE * d) warnings.push(`Uses about ${Math.round(a.serviceUncertainM)} m of service roads or driveways, where access may be unclear.`);
     if (req.type === 'loop' && a.retraceShare > MAX_LOOP_RETRACE) warnings.push(`Repeats about ${Math.round(a.retraceShare * 100)}% of its ground.`);
   }
   return buildOption(c.coords, a, req.type === 'out-and-back', meetsRules, warnings);
@@ -147,6 +161,7 @@ export async function planRoute(input: RouteInput, areaAround: (lat: number, lon
   const all: Candidate[] = [];
   const started = Date.now();
   for (const seed of SEEDS) all.push(...(await candidates(req, 'runway-fewer-stops', map, seed)));
+  all.push(...(await trailCandidates(req, 'runway-fewer-stops', map)));
   if (!all.some((c) => usable(c, req)) && Date.now() - started < EXTRA_ROUND_BEFORE_MS) {
     for (const seed of EXTRA_SEEDS) all.push(...(await candidates(req, 'runway-fewer-stops', map, seed)));
   }

@@ -28,6 +28,7 @@ A public website where a runner picks a starting point and distance, gets a rout
 
 ### Added after testing
 - **3 options at once, and closest matches:** a 20-mile out-and-back from Doral found no route that met every rule. Each request now returns up to 3 routes as tabs. When none meets every rule, the closest matches come back with a warning for each rule they miss.
+- **Trails:** generated routes in Doral rarely used nearby trails, because candidates are aimed by compass bearing. The service now adds routes that follow nearby trails, gives a small credit for trail distance, and keeps a place in the first 3 options for the best trail route.
 - **Draw your own:** runners click points on the map, and the route follows roads and paths between them. It ends as drawn, goes back to the start, or comes back the same way. The same stop estimate, warnings, elevation and GPX download apply, so runners can check routes they already run.
 
 ### Not in version 1
@@ -36,6 +37,7 @@ A public website where a runner picks a starting point and distance, gets a rout
 - **Accounts, saved routes and shareable links**
 - **Ideas from the product plan for later:** extensions, shortcuts, distance markers and workout-shaped routes
 - **Point to point:** a fewest-stops route from a start to a chosen end first, then point to point at a set distance. Drawing mode covers simple point-to-point routes in the meantime.
+- **Surface choice (paved or unpaved):** stop tiles would need to keep the `surface` tag, which means rebuilding them.
 - **Dragging drawn points and freehand drawing:** drawn routes snap to roads and paths, and points can only be undone, not moved.
 
 ## How it fits together

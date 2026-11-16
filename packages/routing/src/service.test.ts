@@ -99,7 +99,7 @@ function fake(bearing: number, figures: Partial<Analysis>, lengthM = 32000): Can
   const coords: Coord[] = Array.from({ length: 50 }, (_, i) => [-80.38 + bearing * 0.01, 25.83 + (i * lengthM) / 49 / 111320]);
   const analysis = {
     distanceM: lengthM, gainM: 0, events: [], signals: 0, long: 0, medium: 0, short: 0, total: 0, likelyStops: 0, otherCrossings: 0, weighted: 0,
-    privateM: 0, serviceM: 0, serviceNearEndsM: 0, busyNoSidewalkM: 0, quietNoSidewalkM: 0, sidewalkPenalty: 0, noSidewalk: [], gates: 0, retraceShare: 0, matchedShare: 1,
+    privateM: 0, serviceM: 0, serviceNearEndsM: 0, serviceUncertainM: 0, trailM: 0, busyNoSidewalkM: 0, quietNoSidewalkM: 0, sidewalkPenalty: 0, noSidewalk: [], gates: 0, retraceShare: 0, matchedShare: 1,
     ...figures,
   } as Analysis;
   return { coords, bearing, analysis };
@@ -126,6 +126,17 @@ test('closest matches with similar rule-breaking distances are ranked by stops',
   const fewStops = fake(2, { busyNoSidewalkM: 1447, weighted: 90 });
   const { routes } = rankRoutes([manyStops, fewStops], longRun);
   assert.deepEqual(routes.map((c) => c.bearing), [2, 1]);
+});
+
+test('the best trail route takes the last place on the first page when none is there', () => {
+  const run10: Request = { ...longRun, distanceM: 10000 };
+  const streets = [1, 2, 3, 4].map((b) => fake(b, { weighted: b }, 10000));
+  const trail = fake(9, { weighted: 30, trailM: 2500 }, 10000);
+  const { routes } = rankRoutes([...streets, trail], run10);
+  assert.deepEqual(routes.slice(0, 3).map((c) => c.bearing), [1, 2, 9]);
+  assert.ok(routes.some((c) => c.bearing === 3)); // moved to the next page, not dropped
+  const short = fake(8, { weighted: 30, trailM: 600 }, 10000); // under 1 km of trail is not a trail route
+  assert.deepEqual(rankRoutes([...streets, short], run10).routes.slice(0, 3).map((c) => c.bearing), [1, 2, 3]);
 });
 
 test('routes that meet every rule are shown alone, without closest matches', () => {
