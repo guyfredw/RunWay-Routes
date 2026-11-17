@@ -1,6 +1,6 @@
 // The route service: checks a request, generates routes near the start, and returns the best few.
 // The website's server calls createRouteHandler; it stores nothing and never logs start points.
-import { MAX_BUSY_SHARE, MAX_LOOP_RETRACE, MAX_SERVICE_SHARE, TOLERANCE, candidates, routeThrough, score, trailCandidates, usable } from './generate.ts';
+import { END_NEARBY_M, MAX_BUSY_SHARE, MAX_LOOP_RETRACE, MAX_SERVICE_SHARE, TOLERANCE, candidates, repeatShare, routeThrough, score, trailCandidates, usable } from './generate.ts';
 import type { Candidate, CourseType, Request } from './generate.ts';
 import { distM, overlapShare } from './stops.ts';
 import type { Analysis, Coord, StopMap } from './stops.ts';
@@ -18,7 +18,7 @@ const EXTRA_SEEDS = [7.5, 22.5]; // tried only when the first round finds nothin
 const EXTRA_ROUND_BEFORE_MS = 5000; // and only if that round was quick enough to stay near 10 seconds
 const MAX_BODY_BYTES = 8000; // room for 100 drawn points
 
-export type RouteInput = { lat: number; lon: number; distanceKm: number; type: CourseType; page: number };
+export type RouteInput = { lat: number; lon: number; distanceKm: number; type: CourseType; page: number; endNearby?: boolean };
 type Parsed = { ok: true; value: RouteInput } | { ok: false; error: string };
 
 export function parseRouteInput(body: unknown): Parsed {
@@ -33,7 +33,8 @@ export function parseRouteInput(body: unknown): Parsed {
   if (!(distanceKm >= MIN_KM && distanceKm <= MAX_KM)) return { ok: false, error: `Distance must be between ${MIN_KM} and ${MAX_KM} km.` };
   if (b.type !== 'loop' && b.type !== 'out-and-back') return { ok: false, error: 'Choose a loop or an out-and-back route.' };
   if (!Number.isInteger(page) || page < 0 || page >= 1000) return { ok: false, error: 'Page must be a whole number from 0.' };
-  return { ok: true, value: { lat, lon, distanceKm, type: b.type, page } };
+  if (b.endNearby !== undefined && typeof b.endNearby !== 'boolean') return { ok: false, error: 'endNearby must be true or false.' };
+  return { ok: true, value: { lat, lon, distanceKm, type: b.type, page, endNearby: b.endNearby === true } };
 }
 
 // How far from the start a route can reach, so enough stop data is loaded.
@@ -57,7 +58,7 @@ export function ruleBreakM(c: Candidate, req: Request): number {
   const d = a.distanceM;
   const busy = Math.max(0, a.busyNoSidewalkM - MAX_BUSY_SHARE * d);
   const service = Math.max(0, a.serviceUncertainM - MAX_SERVICE_SHARE * d);
-  const retrace = req.type === 'loop' ? Math.max(0, a.retraceShare - MAX_LOOP_RETRACE) * d : 0;
+  const retrace = Math.max(0, repeatShare(c, req) - MAX_LOOP_RETRACE) * d;
   const distance = Math.max(0, Math.abs(d - req.distanceM) - TOLERANCE * req.distanceM);
   return busy + service + retrace + distance;
 }
@@ -98,6 +99,7 @@ export type RouteOption = {
   summary: { likelyStops: number; otherCrossings: number; signals: number; noSidewalkM: number; busyNoSidewalkM: number; trailM: number };
   noSidewalk: [number, number][][];
   turnaround: { lat: number; lon: number; distM: number } | null;
+  endGapM: number; // how far a loop finishes from its start; 0 for other routes
   meetsRules: boolean;
   warnings: string[];
 };
@@ -121,7 +123,7 @@ function dataWarnings(a: Analysis, notCovered: boolean): string[] {
 
 const busyWarning = (a: Analysis) => `Includes about ${Math.round(a.busyNoSidewalkM)} m on busy roads with no mapped sidewalk. Check those sections, shown as purple dashes, before you run.`;
 
-function buildOption(coords: Coord[], a: Analysis, outAndBack: boolean, meetsRules: boolean, warnings: string[]): RouteOption {
+function buildOption(coords: Coord[], a: Analysis, outAndBack: boolean, meetsRules: boolean, warnings: string[], loop = false): RouteOption {
   const noSidewalkM = Math.round(a.quietNoSidewalkM + a.busyNoSidewalkM);
   if (noSidewalkM >= 50 && a.busyNoSidewalkM <= MAX_BUSY_SHARE * a.distanceM) warnings.push(`About ${noSidewalkM} m of this route has no mapped sidewalk.`);
   const turn = outAndBack ? turnaroundOf(coords) : null;
@@ -133,6 +135,7 @@ function buildOption(coords: Coord[], a: Analysis, outAndBack: boolean, meetsRul
     summary: { likelyStops: a.likelyStops, otherCrossings: a.otherCrossings, signals: a.signals, noSidewalkM, busyNoSidewalkM: Math.round(a.busyNoSidewalkM), trailM: Math.round(a.trailM) },
     noSidewalk: a.noSidewalk.map((line) => line.map(([x, y]) => [round(x, 6), round(y, 6)] as [number, number])),
     turnaround: turn && { lat: turn.lat, lon: turn.lon, distM: Math.round(a.distanceM / 2) },
+    endGapM: loop ? Math.round(distM(coords[0][1], coords[0][0], coords[coords.length - 1][1], coords[coords.length - 1][0])) : 0,
     meetsRules,
     warnings,
   };
@@ -147,16 +150,17 @@ export function toOption(c: Candidate, req: Request, missingStartTile: boolean):
     if (Math.abs(d - req.distanceM) > TOLERANCE * req.distanceM) warnings.push(`${km(d)} is the closest distance found to the ${km(req.distanceM)} you asked for.`);
     if (a.busyNoSidewalkM > MAX_BUSY_SHARE * d) warnings.push(busyWarning(a));
     if (a.serviceUncertainM > MAX_SERVICE_SHARE * d) warnings.push(`Uses about ${Math.round(a.serviceUncertainM)} m of service roads or driveways, where access may be unclear.`);
-    if (req.type === 'loop' && a.retraceShare > MAX_LOOP_RETRACE) warnings.push(`Repeats about ${Math.round(a.retraceShare * 100)}% of its ground.`);
+    if (repeatShare(c, req) > MAX_LOOP_RETRACE) warnings.push(`Repeats about ${Math.round(repeatShare(c, req) * 100)}% of its ground.`);
   }
-  return buildOption(c.coords, a, req.type === 'out-and-back', meetsRules, warnings);
+  return buildOption(c.coords, a, req.type === 'out-and-back', meetsRules, warnings, req.type === 'loop');
 }
 
 export type StopArea = { map: StopMap; startCovered: boolean };
 export type Outcome = { status: number; body: RouteResponse | RouteOption | { error: string }; headers?: Record<string, string> };
 
 export async function planRoute(input: RouteInput, areaAround: (lat: number, lon: number, radiusM: number) => StopArea): Promise<Outcome> {
-  const req: Request = { lat: input.lat, lon: input.lon, distanceM: input.distanceKm * 1000, type: input.type };
+  const endNearbyM = input.type === 'loop' && input.endNearby ? END_NEARBY_M : 0;
+  const req: Request = { lat: input.lat, lon: input.lon, distanceM: input.distanceKm * 1000, type: input.type, endNearbyM };
   const { map, startCovered } = areaAround(input.lat, input.lon, searchRadiusM(input.distanceKm));
   const all: Candidate[] = [];
   const started = Date.now();

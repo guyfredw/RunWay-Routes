@@ -44,6 +44,7 @@ export default function Planner() {
   const [start, setStart] = useState<Point | null>(null);
   const [distance, setDistance] = useState('5');
   const [type, setType] = useState<CourseType>('loop');
+  const [endNearby, setEndNearby] = useState(false);
   const [result, setResult] = useState<RouteResponse | null>(null);
   const [selected, setSelected] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -113,7 +114,7 @@ export default function Planner() {
     setLoading(true);
     setError('');
     const distanceKm = Math.round((unit === 'km' ? distanceNum : distanceNum * KM_PER_MI) * 1000) / 1000;
-    const r = await post<RouteResponse>('/api/route', { lat: start.lat, lon: start.lon, distanceKm, type, page });
+    const r = await post<RouteResponse>('/api/route', { lat: start.lat, lon: start.lon, distanceKm, type, page, endNearby: type === 'loop' && endNearby });
     setLoading(false);
     if (!r.ok) {
       setResult(null);
@@ -237,6 +238,16 @@ export default function Planner() {
                   <button key={t} type="button" role="radio" aria-checked={type === t} onClick={() => { setType(t); resetRoute(); }}>{label}</button>
                 ))}
               </div>
+              {type === 'loop' && (
+                <>
+                  <div className="toggle wide" role="radiogroup" aria-label="Where the loop finishes">
+                    {([[false, 'Finish at start'], [true, 'End nearby']] as [boolean, string][]).map(([v, label]) => (
+                      <button key={label} type="button" role="radio" aria-checked={endNearby === v} onClick={() => { setEndNearby(v); resetRoute(); }}>{label}</button>
+                    ))}
+                  </div>
+                  {endNearby && <p className="note">Finishes up to {unit === 'km' ? '800 m' : '0.5 mi'} from the start, so the route repeats less of itself.</p>}
+                </>
+              )}
             </fieldset>
 
             <button className="primary" type="button" disabled={!start || !distanceOk || loading} onClick={() => generate(0)}>
