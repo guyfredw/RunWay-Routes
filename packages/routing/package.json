@@ -10,7 +10,7 @@
     "./service": "./src/service.ts"
   },
   "scripts": {
-    "test": "node --test src/stops.test.ts src/gpx.test.ts src/tiles.test.ts src/service.test.ts",
+    "test": "node --test src/stops.test.ts src/generate.test.ts src/gpx.test.ts src/tiles.test.ts src/service.test.ts",
     "typecheck": "tsc --noEmit -p ."
   }
 }

@@ -497,7 +497,7 @@ function dividedWidth(carriageways: Record<string, number>): number {
   return best;
 }
 
-function segKey(a: Coord, b: Coord): string {
+export function segKey(a: Coord, b: Coord): string {
   const ka = `${a[0].toFixed(5)},${a[1].toFixed(5)}`;
   const kb = `${b[0].toFixed(5)},${b[1].toFixed(5)}`;
   return ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;

@@ -113,6 +113,23 @@ test('miles are converted and sent as kilometres', async ({ page }) => {
   expect(bodies[0].distanceKm).toBeCloseTo(4.989, 2);
 });
 
+test('a loop can end near the start, and says how far away it ends', async ({ page }) => {
+  const bodies = await setUp(page, (r) => r.fulfill({ json: { ...fakeResponse(), type: 'loop', options: [{ ...fakeOption(1), turnaround: null, endGapM: 400 }] } }));
+  await findAndSetStart(page);
+  await expect(page.getByRole('radio', { name: 'Finish at start' })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('radio', { name: 'End nearby' }).click();
+  await expect(page.getByText('Finishes up to 800 m from the start')).toBeVisible();
+  await page.getByRole('button', { name: 'Generate route' }).click();
+  await expect(page.getByTestId('end-gap')).toHaveText('Ends 0.40 km from your start.');
+  expect(bodies[0]).toMatchObject({ type: 'loop', endNearby: true });
+
+  // Out-and-back routes always finish at the start, so the choice goes away.
+  await page.getByRole('radio', { name: 'Out and back' }).click();
+  await expect(page.getByRole('radio', { name: 'End nearby' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Generate route' }).click();
+  expect(bodies[1]).toMatchObject({ type: 'out-and-back', endNearby: false });
+});
+
 test('distances outside the range are refused before sending', async ({ page }) => {
   await setUp(page);
   await findAndSetStart(page);

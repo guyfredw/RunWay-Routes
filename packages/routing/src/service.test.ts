@@ -28,7 +28,10 @@ function fakeBrouter(): () => void {
 
 test('accepts a valid request and rejects bad ones', () => {
   const ok = parseRouteInput({ lat: 25.8, lon: -80.3, distanceKm: 5, type: 'loop' });
-  assert.deepEqual(ok, { ok: true, value: { lat: 25.8, lon: -80.3, distanceKm: 5, type: 'loop', page: 0 } });
+  assert.deepEqual(ok, { ok: true, value: { lat: 25.8, lon: -80.3, distanceKm: 5, type: 'loop', page: 0, endNearby: false } });
+  const nearby = parseRouteInput({ lat: 25.8, lon: -80.3, distanceKm: 5, type: 'loop', endNearby: true });
+  assert.equal(nearby.ok && nearby.value.endNearby, true);
+  assert.equal(parseRouteInput({ lat: 25.8, lon: -80.3, distanceKm: 5, type: 'loop', endNearby: 'yes' }).ok, false);
   assert.equal(parseRouteInput({ lat: 95, lon: 0, distanceKm: 5, type: 'loop' }).ok, false);
   assert.equal(parseRouteInput({ lat: '25.8', lon: -80.3, distanceKm: 5, type: 'loop' }).ok, false);
   assert.equal(parseRouteInput({ lat: 25.8, lon: -80.3, distanceKm: MAX_KM + 1, type: 'loop' }).ok, false);
@@ -89,6 +92,21 @@ test('returns a loop within 5% of the distance, and warns outside the covered ar
     assert.ok(Math.abs(route.distanceM - 8000) <= 400, `distance ${route.distanceM}`);
     assert.equal(route.turnaround, null);
     assert.ok(route.warnings[0].includes('outside the area'));
+    assert.ok(route.endGapM < 10, `exact finish ends ${route.endGapM} m away`);
+  } finally {
+    restore();
+  }
+});
+
+test('an "end nearby" loop finishes within 0.5 mi of the start', async () => {
+  const restore = fakeBrouter();
+  try {
+    const r = await planRoute({ ...START, distanceKm: 8, type: 'loop', page: 0, endNearby: true }, emptyArea);
+    assert.equal(r.status, 200);
+    for (const route of (r.body as RouteResponse).options) {
+      assert.ok(Math.abs(route.distanceM - 8000) <= 400, `distance ${route.distanceM}`);
+      assert.ok(route.endGapM <= 805, `ends ${route.endGapM} m away`);
+    }
   } finally {
     restore();
   }

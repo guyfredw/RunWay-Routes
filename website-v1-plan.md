@@ -29,6 +29,7 @@ A public website where a runner picks a starting point and distance, gets a rout
 ### Added after testing
 - **3 options at once, and closest matches:** a 20-mile out-and-back from Doral found no route that met every rule. Each request now returns up to 3 routes as tabs. When none meets every rule, the closest matches come back with a warning for each rule they miss.
 - **Trails:** generated routes in Doral rarely used nearby trails, because candidates are aimed by compass bearing. The service now adds routes that follow nearby trails, gives a small credit for trail distance, and keeps a place in the first 3 options for the best trail route.
+- **Fewer out-and-back spurs on loops, and "End nearby":** a 3-mile loop run in Doral repeated 24% of itself in 4 short out-and-back spurs. Loops now cut spurs out or route around them, and may repeat no more than 10% of their ground. Runners can also let a loop finish up to 0.5 mi from the start, so it needn't repeat the way home.
 - **Draw your own:** runners click points on the map, and the route follows roads and paths between them. It ends as drawn, goes back to the start, or comes back the same way. The same stop estimate, warnings, elevation and GPX download apply, so runners can check routes they already run.
 
 ### Not in version 1

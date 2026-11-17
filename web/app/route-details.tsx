@@ -21,6 +21,9 @@ export default function RouteDetails({ route, unit, actions, note }: { route: Ro
       {route.summary.trailM >= 100 && (
         <p className="trail-note" data-testid="trail">{fmtDist(route.summary.trailM, unit)} on trails and paths away from traffic</p>
       )}
+      {(route.endGapM ?? 0) >= 50 && (
+        <p className="note" data-testid="end-gap">Ends {fmtDist(route.endGapM, unit)} from your start.</p>
+      )}
       {route.warnings.length > 0 && (
         <ul className="warnings">
           {route.warnings.map((w) => <li key={w}>{w}</li>)}
