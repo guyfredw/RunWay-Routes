@@ -259,6 +259,7 @@ export default function Planner() {
                         <span>Route {routeNumber(i)}</span>
                         <small>{fmtDist(o.distanceM, unit)}</small>
                         <small>{o.summary.likelyStops} likely {o.summary.likelyStops === 1 ? 'stop' : 'stops'}</small>
+                        {o.summary.trailM >= 100 && <small className="trail-tag">{fmtDist(o.summary.trailM, unit)} on trails</small>}
                       </button>
                     ))}
                   </div>

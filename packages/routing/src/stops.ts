@@ -39,6 +39,8 @@ export type Analysis = {
   privateM: number;
   serviceM: number;
   serviceNearEndsM: number; // service road within ENDS_M of the start or finish, such as leaving a parking lot
+  serviceUncertainM: number; // service road where access is unclear: not near the ends, not marked public, not joining a trail
+  trailM: number; // on trails and paths away from roads, not sidewalks or crosswalks
   busyNoSidewalkM: number;
   quietNoSidewalkM: number;
   sidewalkPenalty: number;
@@ -120,6 +122,11 @@ const isSignalNode = (t?: Record<string, string>) => t?.highway === 'traffic_sig
 const isSeparatedLevel = (t?: Record<string, string>) => !!t && ((t.bridge && t.bridge !== 'no') || (t.tunnel && t.tunnel !== 'no'));
 const isPrivate = (t?: Record<string, string>) => !!t && (t.access === 'private' || t.access === 'no' || t.foot === 'no' || t.foot === 'private');
 const isWalkPath = (t?: Record<string, string>) => /^(footway|path|cycleway|pedestrian)$/.test(t?.highway ?? '') && t?.footway !== 'crossing';
+// A trail or path of its own: not a sidewalk or crosswalk mapped beside or across a road.
+export const isTrail = (t?: Record<string, string>) =>
+  /^(footway|path|cycleway|pedestrian|track|bridleway)$/.test(t?.highway ?? '') && t?.footway !== 'crossing' && t?.footway !== 'sidewalk' && !isPrivate(t);
+
+export type Trail = { name: string; points: { lat: number; lon: number }[]; lengthM: number; nearestM: number };
 
 function segmentsCross(aLat: number, aLon: number, bLat: number, bLon: number, cLat: number, cLon: number, dLat: number, dLon: number): boolean {
   const o = (pLat: number, pLon: number, qLat: number, qLon: number, rLat: number, rLon: number) => (qLon - pLon) * (rLat - pLat) - (qLat - pLat) * (rLon - pLon);
@@ -230,6 +237,44 @@ export class StopMap {
     return false;
   }
 
+  // A service road is fine to run on when it is marked as public, or joins a trail,
+  // since those are usually public access paths to it.
+  private connectors?: Set<number>;
+  clearServiceAccess(way: number): boolean {
+    const t = this.ways[way].tags ?? {};
+    if (t.highway !== 'service') return false;
+    if (/^(yes|permissive|public)$/.test(t.access ?? '') || /^(yes|designated|permissive)$/.test(t.foot ?? '')) return true;
+    if (!this.connectors) {
+      this.connectors = new Set();
+      this.ways.forEach((w) => {
+        if (!isTrail(w.tags)) return;
+        for (const id of w.nodes ?? []) for (const other of this.nodeWays.get(id) ?? []) this.connectors!.add(other);
+      });
+    }
+    return this.connectors.has(way);
+  }
+
+  // Trails near a point, nearest first. Pieces with the same name count as one trail;
+  // unnamed pieces count only if they are long enough on their own.
+  trails(lat: number, lon: number, radiusM: number, minLengthM = 800): Trail[] {
+    const groups = new Map<string, Trail>();
+    this.ways.forEach((w, i) => {
+      if (!isTrail(w.tags)) return;
+      const pts = (w.geometry ?? []).filter((p): p is { lat: number; lon: number } => !!p);
+      if (pts.length < 2) return;
+      const name = w.tags?.name ?? '';
+      const key = name || `#${i}`;
+      const g = groups.get(key) ?? { name, points: [], lengthM: 0, nearestM: Infinity };
+      for (let k = 0; k < pts.length; k++) {
+        if (k) g.lengthM += distM(pts[k - 1].lat, pts[k - 1].lon, pts[k].lat, pts[k].lon);
+        g.nearestM = Math.min(g.nearestM, distM(lat, lon, pts[k].lat, pts[k].lon));
+        g.points.push(pts[k]);
+      }
+      groups.set(key, g);
+    });
+    return [...groups.values()].filter((g) => g.lengthM >= minLengthM && g.nearestM <= radiusM).sort((a, b) => a.nearestM - b.nearestM);
+  }
+
   maxLanes(ways: Iterable<number>): number {
     let best = 0;
     for (const w of ways) if (roadClass(this.ways[w].tags)) best = Math.max(best, lanesOf(this.ways[w].tags));
@@ -274,6 +319,8 @@ export class StopMap {
     let privateM = 0;
     let serviceM = 0;
     let serviceNearEndsM = 0;
+    let serviceUncertainM = 0;
+    let trailM = 0;
     const total = cum[cum.length - 1] ?? 0;
     let busyNoSidewalkM = 0;
     let quietNoSidewalkM = 0;
@@ -318,8 +365,11 @@ export class StopMap {
         if (after.length > 0 && after.every((w) => isPrivate(this.ways[w].tags))) privateM += segLen;
         if (after.length > 0 && after.every((w) => this.ways[w].tags?.highway === 'service')) {
           serviceM += segLen;
-          if (cum[i] < ENDS_M || cum[j] > total - ENDS_M) serviceNearEndsM += segLen;
+          const nearEnds = cum[i] < ENDS_M || cum[j] > total - ENDS_M;
+          if (nearEnds) serviceNearEndsM += segLen;
+          else if (!after.some((w) => this.clearServiceAccess(w))) serviceUncertainM += segLen;
         }
+        if (after.some((w) => isTrail(this.ways[w].tags))) trailM += segLen;
 
         // Running along a road: is there any sign of a sidewalk here?
         const road = after.find((w) => roadClass(this.ways[w].tags));
@@ -384,6 +434,8 @@ export class StopMap {
       privateM,
       serviceM,
       serviceNearEndsM,
+      serviceUncertainM,
+      trailM,
       busyNoSidewalkM,
       quietNoSidewalkM,
       sidewalkPenalty: sidewalkPenalty / 100,

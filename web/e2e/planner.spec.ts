@@ -13,7 +13,7 @@ function fakeOption(n: number, meetsRules = true) {
       { lat: 25.8285, lon: -80.3553, likely: true, signal: true, wait: 'long', road: 'NW 41st St', distM: 1000 },
       { lat: 25.8240, lon: -80.3553, likely: false, signal: false, wait: 'short', distM: 500 },
     ],
-    summary: { likelyStops: n, otherCrossings: 1, signals: 1, noSidewalkM: meetsRules ? 0 : 900, busyNoSidewalkM: meetsRules ? 0 : 900 },
+    summary: { likelyStops: n, otherCrossings: 1, signals: 1, noSidewalkM: meetsRules ? 0 : 900, busyNoSidewalkM: meetsRules ? 0 : 900, trailM: n === 3 ? 2500 : 0 },
     noSidewalk: [],
     turnaround: { lat: 25.8420, lon: -80.3553, distM: 2500 },
     meetsRules,
@@ -65,8 +65,10 @@ test('search, set a start, compare routes, show more and download', async ({ pag
   await expect(page.getByRole('tab')).toHaveCount(3);
   await expect(page.getByText('Set 1 of 2.')).toBeVisible();
 
+  await expect(page.getByRole('tab', { name: /Route 3/ })).toContainText('2.50 km on trails');
   await page.getByRole('tab', { name: /Route 3/ }).click();
   await expect(page.getByTestId('likely-stops')).toHaveText('3');
+  await expect(page.getByTestId('trail')).toHaveText('2.50 km on trails and paths away from traffic');
   expect(bodies).toHaveLength(1); // switching routes needs no new request
 
   await page.getByRole('button', { name: 'Show more routes' }).click();
